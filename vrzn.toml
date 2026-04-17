@@ -1,0 +1,29 @@
+[[locations]]
+file = "pyproject.toml"
+type = "pyproject-version"
+
+[[locations]]
+file = "python/pyproject.toml"
+type = "pyproject-version"
+
+[[locations]]
+file = "python/oeio/__init__.py"
+type = "python-dunder"
+
+[[locations]]
+file = "python/oeio/__init__.py"
+type = "python-version-info"
+
+[[locations]]
+file = "CMakeLists.txt"
+type = "cmake-project"
+
+[[locations]]
+file = "include/oeio/version.h"
+type = "c-define"
+prefix = "OEIO"
+
+[[locations]]
+file = "swig/oeio.i"
+type = "c-define"
+prefix = "OEIO"
