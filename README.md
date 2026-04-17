@@ -1,70 +1,185 @@
-# OEIO
+# oeio
 
-Modular package for deploying new readers and writers for the OpenEye Toolkits
+A modular molecule I/O library for the [OpenEye Toolkits](https://www.eyesopen.com/).
+oeio provides range-based reading, RAII writing, and pipeline operators for
+molecular file formats, with a plugin architecture that lets you register new
+format handlers within your own libraries.
 
-This project provides a C++ library with Python bindings built using SWIG and
-[OpenEye Toolkits](https://www.eyesopen.com/). Molecules created with
-`openeye.oechem` in Python pass natively to C++ without serialization.
+Both C++ and Python interfaces are provided (via SWIG)
 
-## Prerequisites
+## Supported Formats
 
-- **OpenEye C++ SDK** -- Headers and libraries (download from
-  [OpenEye](https://www.eyesopen.com/))
-- **OpenEye Python Toolkits** -- `pip install openeye-toolkits`
-- **CMake** >= 3.16
-- **SWIG** >= 4.0
-- **Python** >= 3.10
+The built-in OEChem handler supports all OEChem-native formats:
 
-## Getting Started
+| Format | Extensions |
+|--------|------------|
+| SDF | `.sdf`, `.sdf.gz` |
+| MOL | `.mol` |
+| MOL2 | `.mol2`, `.mol2.gz` |
+| PDB | `.pdb`, `.pdb.gz`, `.ent`, `.ent.gz` |
+| OEB | `.oeb`, `.oeb.gz`, `.oez` |
+| SMILES | `.smi`, `.smi.gz`, `.ism`, `.can` |
+| CSV | `.csv`, `.csv.gz` |
+| XYZ | `.xyz`, `.xyz.gz` |
+| Other | `.fasta`, `.cif`, `.mmcif`, `.mopac`, `.cdx` |
 
-### 1. Configure the OpenEye SDK Path
+Additional formats can be added through the plugin system (see
+[Registering Format Plugins](#registering-format-plugins)).
 
-Create a local presets file that points CMake to your OpenEye C++ SDK:
+## Installation
+
+### From a Wheel
 
 ```bash
-cp CMakePresets.json CMakeUserPresets.json
+pip install oeio
 ```
 
-Edit `CMakeUserPresets.json` and replace `/path/to/openeye/sdk` with the actual
-path to your OpenEye C++ SDK installation (the directory containing `include/`
-and `lib/`). This file is gitignored so it won't be committed.
+Requires `openeye-toolkits` to be installed separately.
 
-### 2. Build the C++ Library and SWIG Bindings
+### From Source
+
+Prerequisites:
+
+- OpenEye C++ SDK
+- CMake >= 3.16
+- SWIG >= 4.0
+- Python >= 3.10
+
+Configure and build:
 
 ```bash
 cmake --preset debug
 cmake --build build-debug
 ```
 
-This builds the static C++ library, generates the SWIG wrapper, and places the
-compiled Python extension module in `python/oeio/`.
-
-To build in release mode:
-
-```bash
-cmake --preset release
-cmake --build build-release
-```
-
-### 3. Install for Development
-
-Install the Python package in editable mode so changes to the C++ code are
-reflected after rebuilding:
+Install the Python package for development:
 
 ```bash
 pip install --config-settings editable_mode=compat -e python/
 ```
 
-The `editable_mode=compat` flag is required because scikit-build-core's default
-editable mode uses import hooks that are incompatible with compiled SWIG
-extension modules. The compat mode installs the package as a traditional
-`.egg-link`, which works reliably with native extensions.
+## Usage
 
-### 4. Run Tests
+### Python
 
-C++ tests (built automatically with the debug preset):
+**Reading molecules:**
+
+```python
+import oeio
+
+for mol in oeio.read("molecules.sdf"):
+    print(mol.GetTitle(), mol.NumAtoms())
+```
+
+**Writing molecules:**
+
+```python
+import oeio
+
+with oeio.write("output.sdf") as writer:
+    for mol in oeio.read("input.sdf"):
+        writer.add(mol)
+```
+
+**Filtering:**
+
+```python
+import oeio
+
+large_mols = oeio.filter(
+    oeio.read("input.sdf"),
+    lambda mol: mol.NumAtoms() > 10
+)
+for mol in large_mols:
+    print(mol.GetTitle())
+```
+
+**Transforming:**
+
+```python
+import oeio
+from openeye import oechem
+
+prepared = oeio.transform(
+    oeio.read("input.sdf"),
+    lambda mol: oechem.OEAddExplicitHydrogens(mol)
+)
+with oeio.write("prepared.sdf") as writer:
+    for mol in prepared:
+        writer.add(mol)
+```
+
+**Listing registered formats:**
+
+```python
+for fmt in oeio.formats():
+    print(f"{fmt.name}: {', '.join(fmt.extensions)}")
+```
+
+### C++
+
+Include the umbrella header:
+
+```cpp
+#include <oeio/oeio.h>
+```
+
+**Reading molecules:**
+
+```cpp
+for (auto& mol : oeio::read("molecules.sdf")) {
+    std::cout << mol.GetTitle() << "\n";
+}
+```
+
+**Pipeline: filter, transform, write:**
+
+```cpp
+oeio::read("input.sdf")
+    | oeio::filter([](const OEChem::OEMolBase& mol) {
+        return mol.NumAtoms() > 10;
+    })
+    | oeio::transform([](OEChem::OEGraphMol& mol) {
+        OEChem::OEAddExplicitHydrogens(mol);
+    })
+    | oeio::write("output.sdf");
+```
+
+The pipe operator (`|`) connects a `MolRange` to a `Writer`, streaming molecules
+without intermediate storage.
+
+**Reading with configuration:**
+
+```cpp
+oeio::oechem::ReaderConfig cfg;
+cfg.iflavor_format = OEChem::OEFormat::SDF;
+cfg.iflavor = OEChem::OEIFlavor::SDF::Default;
+
+for (auto& mol : oeio::read("input.sdf", std::any(cfg))) {
+    // ...
+}
+```
+
+## Configuration
+
+Both `ReaderConfig` and `WriterConfig` allow fine-grained control over format
+behavior:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `format` | `unsigned int` | OEFormat constant (0 = auto-detect from extension) |
+| `iflavor_format` / `oflavor_format` | `unsigned int` | Format for flavor setting |
+| `iflavor` / `oflavor` | `unsigned int` | OEIFlavor/OEOFlavor value |
+| `num_threads` | `unsigned int` | Thread count (0 = single-threaded) |
+
+In most cases the defaults work -- format is detected from the file extension.
+
+## Running Tests
+
+C++ tests:
 
 ```bash
+cmake --build build-debug
 cd build-debug && ctest --output-on-failure
 ```
 
@@ -74,175 +189,122 @@ Python tests:
 pytest tests/python/ -v
 ```
 
-The Python tests verify that molecules created with `openeye.oechem.OEGraphMol`
-pass correctly to the C++ `calculate_molecular_weight` function.
+## Registering Format Plugins
 
-## Usage
+oeio uses a plugin architecture that allows you to add support for new molecular
+file formats. A plugin consists of three parts: a `MolSource` for reading, a
+`MolSink` for writing, and a `FormatHandler` that ties them together.
 
-```python
-from openeye import oechem
-from oeio import calculate_molecular_weight
-
-mol = oechem.OEGraphMol()
-oechem.OESmilesToMol(mol, "CC(=O)OC1=CC=CC=C1C(=O)O")  # aspirin
-
-mw = calculate_molecular_weight(mol)
-print(f"Molecular weight: {mw:.2f}")  # 180.16
-```
-
-The `OEGraphMol` object passes directly from Python to C++ via cross-runtime
-SWIG typemaps. No SMILES round-trip or manual pointer handling is needed.
-
-## Project Structure
-
-```
-oeio/
-    CMakeLists.txt                  # Build configuration
-    CMakePresets.json               # CMake presets (copy to CMakeUserPresets.json)
-    pyproject.toml                  # Package metadata + [tool.oe-build] config
-    vrzn.toml                       # Version locations for vrzn
-    include/oeio/
-        oeio.h               # Public C++ header
-    src/
-        oeio.cpp             # C++ implementation
-    swig/
-        oeio.i               # SWIG interface with OEMolBase typemaps
-        CMakeLists.txt              # SWIG module build rules
-    python/
-        pyproject.toml              # Setuptools config for editable installs
-        oeio/
-            __init__.py             # Python package (imports, compat layer)
-    scripts/
-        build_python.py             # Build distributable wheels
-    tests/
-        cpp/
-            CMakeLists.txt          # C++ test build rules
-            test_oeio.cpp     # C++ unit tests
-        python/
-            conftest.py             # Pytest fixtures (molecule helpers)
-            test_oeio.py      # Python tests
-    .github/workflows/
-        build-wheels.yml            # CI: multi-platform wheel builds
-```
-
-## Adding New Functions
-
-The scaffolded `calculate_molecular_weight` function demonstrates the pattern for
-wrapping C++ code that operates on OpenEye molecules. To add your own functions:
-
-**1. Declare in the header** (`include/oeio/oeio.h`):
+### Step 1: Implement MolSource and MolSink
 
 ```cpp
-namespace OEIO {
+#include <oeio/format_handler.h>
 
-double my_function(const OEChem::OEMolBase& mol);
+namespace myformat {
 
-} // namespace OEIO
+class MyReader : public oeio::MolSource {
+public:
+    MyReader(const std::string& path) {
+        // Open file, initialize parser
+    }
+
+    bool next(OEChem::OEGraphMol& mol) override {
+        // Read next molecule into mol.
+        // Return true on success, false at end-of-file.
+    }
+
+private:
+    // File handle, parser state, etc.
+};
+
+class MyWriter : public oeio::MolSink {
+public:
+    MyWriter(const std::string& path) {
+        // Open file for writing
+    }
+
+    bool write(const OEChem::OEMolBase& mol) override {
+        // Write molecule. Return true on success.
+    }
+
+    void close() override {
+        // Flush and close.
+    }
+};
+
+} // namespace myformat
 ```
 
-**2. Implement** (`src/oeio.cpp` or a new `.cpp` file):
+### Step 2: Implement FormatHandler
+
+The handler provides metadata and factory methods for creating readers and writers:
 
 ```cpp
-namespace OEIO {
+#include <oeio/format_handler.h>
 
-double my_function(const OEChem::OEMolBase& mol) {
-    // Your implementation using OpenEye C++ API
-}
+namespace myformat {
 
-} // namespace OEIO
+class MyHandler : public oeio::FormatHandler {
+public:
+    oeio::FormatInfo info() const override {
+        return {
+            "MyFormat",                      // name
+            {".myf", ".myf.gz"},             // extensions
+            "My custom molecular format",    // description
+            true,                            // supports_read
+            true,                            // supports_write
+            false,                           // supports_threaded_read
+            false                            // supports_threaded_write
+        };
+    }
+
+    std::unique_ptr<oeio::MolSource> make_reader(
+            const std::string& path,
+            const std::any& config) const override {
+        return std::make_unique<MyReader>(path);
+    }
+
+    std::unique_ptr<oeio::MolSink> make_writer(
+            const std::string& path,
+            const std::any& config) const override {
+        return std::make_unique<MyWriter>(path);
+    }
+};
+
+} // namespace myformat
 ```
 
-If you add new `.cpp` files, add them to the `OEIO_SOURCES` list in
-`CMakeLists.txt`.
+### Step 3: Register the Handler
 
-**3. Expose in SWIG** (`swig/oeio.i`), under the "Wrapped API" section:
+Use the `OEIO_REGISTER_FORMAT` macro at file scope to register the handler when
+the library loads:
 
-```swig
-namespace OEIO {
-double my_function(const OEChem::OEMolBase& mol);
-}
+```cpp
+#include <oeio/format_registry.h>
+
+OEIO_REGISTER_FORMAT(myformat::MyHandler)
 ```
 
-Any function accepting `OEMolBase&` or `const OEMolBase&` will automatically use
-the cross-runtime typemaps.
+Once registered, all oeio functions automatically recognize your format:
 
-**4. Import in Python** (`python/oeio/__init__.py`):
-
-```python
-from .oeio import (
-    calculate_molecular_weight,
-    my_function,
-)
+```cpp
+// These just work -- oeio looks up ".myf" in the registry
+for (auto& mol : oeio::read("data.myf")) { ... }
+oeio::read("data.myf") | oeio::write("output.myf");
 ```
 
-**5. Rebuild and test:**
-
-```bash
-cmake --build build-debug
-pytest tests/python/ -v
-```
+The `config` parameter in `make_reader` and `make_writer` carries format-specific
+options as a type-erased `std::any`. You can define your own config struct and
+extract it with `std::any_cast`.
 
 ## Building Wheels
 
-### Local Build
-
-The `scripts/build_python.py` script builds a distributable wheel. It reads
-project-specific settings from the `[tool.oe-build]` section of `pyproject.toml`,
-so the script itself never needs modification.
-
 ```bash
-python scripts/build_python.py --openeye-root /path/to/openeye/sdk --verbose
+python scripts/build_python.py --openeye-root /path/to/openeye/sdk
 ```
 
-The built wheel will be placed in `dist/`. On macOS, the script automatically
-runs `delocate` to bundle non-OpenEye dependencies and sets the correct RPATH
-for OpenEye shared libraries.
-
-Options:
-
-```
---openeye-root PATH    Path to OpenEye C++ SDK (or set OPENEYE_ROOT env var)
---python PATH          Python executable to use
---clean                Clean dist/ before building
---upload               Upload to PyPI after building
---test-upload          Upload to TestPyPI instead
---verbose              Show build commands
-```
-
-If `--openeye-root` is not provided, the script checks the `OPENEYE_ROOT`
-environment variable and then `CMakePresets.json` / `CMakeUserPresets.json`.
-
-### CI Builds
-
-The included GitHub Actions workflow (`.github/workflows/build-wheels.yml`)
-builds wheels on:
-
-- Linux x86_64 (Rocky Linux 8, manylinux_2_28)
-- Linux aarch64 (Rocky Linux 9, manylinux_2_34)
-- macOS arm64 (universal2)
-
-It triggers on version tags (`v*`) and `workflow_dispatch`. Wheels are published
-to PyPI via trusted publishing on tag pushes.
-
-**Required GitHub Variables** (configured in Settings > Variables > Actions):
-
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `OPENEYE_VERSION` | `2025.2.1` | OpenEye SDK version for CI |
-| `SDK_BUCKET` | `openeye-sdks` | Cloud storage bucket name |
-| `SDK_LINUX_X86_64` | `OpenEye-toolkits-...-x64.tar.gz` | Linux x86_64 SDK filename |
-| `SDK_LINUX_AARCH64` | `OpenEye-toolkits-...-aarch64.tar.gz` | Linux aarch64 SDK filename |
-| `SDK_MACOS` | `OpenEye-toolkits-...-universal.tar.gz` | macOS SDK filename |
-
-**Required GitHub Secrets:**
-
-| Secret | Description |
-|--------|-------------|
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GCP Workload Identity Federation provider |
-| `GCP_SERVICE_ACCOUNT` | GCP service account for SDK downloads |
-
-The OpenEye C++ SDK and license file are downloaded from a GCS bucket
-(`SDK_BUCKET`) during CI.
+Options: `--clean`, `--upload`, `--test-upload`, `--verbose`. If `--openeye-root`
+is not provided, the script checks `OPENEYE_ROOT`, then `CMakePresets.json`.
 
 ## CMake Options
 
@@ -250,54 +312,9 @@ The OpenEye C++ SDK and license file are downloaded from a GCS bucket
 |--------|---------|-------------|
 | `OEIO_BUILD_TESTS` | ON | Build C++ tests |
 | `OEIO_BUILD_PYTHON` | ON | Build Python SWIG bindings |
-| `OEIO_UNIVERSAL2` | ON | Build macOS universal2 binary |
+| `OEIO_BUILD_BENCHMARKS` | OFF | Build performance benchmarks |
+| `OEIO_UNIVERSAL2` | OFF | Build macOS universal2 binary |
 | `OEIO_USE_STABLE_ABI` | ON | Use Python stable ABI (abi3) |
-
-## Tools
-
-This project uses several tools to manage the build, packaging, and versioning:
-
-| Tool | Purpose |
-|------|---------|
-| [CMake](https://cmake.org/) | Build system for the C++ library and SWIG bindings |
-| [SWIG](https://www.swig.org/) | Generates Python bindings from C++ headers |
-| [scikit-build-core](https://scikit-build-core.readthedocs.io/) | Python build backend that delegates to CMake |
-| [cmake-openeye](https://github.com/scott-arne/cmake-openeye) | CMake modules for finding the OpenEye SDK and building SWIG targets |
-| [vrzn](https://github.com/scott-arne/vrzn) | Keeps version numbers in sync across all project files |
-| [delocate](https://github.com/matthew-brett/delocate) | Bundles shared libraries into macOS wheels |
-| [auditwheel](https://github.com/pypa/auditwheel) | Bundles shared libraries into Linux wheels |
-| [pytest](https://docs.pytest.org/) | Test framework for the Python test suite |
-
-## Version Management
-
-This project uses [vrzn](https://github.com/scott-arne/vrzn) to keep version
-numbers consistent across all project files. The `vrzn.toml` configuration
-tracks seven version locations:
-
-| File | Location Type |
-|------|---------------|
-| `pyproject.toml` | `[project] version` |
-| `python/pyproject.toml` | `[project] version` |
-| `python/oeio/__init__.py` | `__version__` |
-| `python/oeio/__init__.py` | `__version_info__` |
-| `CMakeLists.txt` | `project(... VERSION ...)` |
-| `include/oeio/oeio.h` | `#define` version macros |
-| `swig/oeio.i` | `#define` version macros |
-
-Common commands:
-
-```bash
-vrzn get          # Show current version in all tracked locations
-vrzn bump patch   # Bump patch version (e.g. 0.1.0 -> 0.1.1)
-vrzn bump minor   # Bump minor version (e.g. 0.1.0 -> 0.2.0)
-vrzn set 1.0.0    # Set an explicit version everywhere
-```
-
-Install vrzn with:
-
-```bash
-pip install vrzn
-```
 
 ## License
 
