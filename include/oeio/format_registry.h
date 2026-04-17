@@ -6,6 +6,7 @@
 #include <memory>
 #include <shared_mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "oeio/format_handler.h"
@@ -65,8 +66,17 @@ private:
         std::size_t handler_index;
     };
 
-    /// \brief Extension map sorted by extension length (descending) for longest-match lookup.
-    std::vector<ExtEntry> ext_map_;
+    /// \brief Hash map for simple (single-dot) extension lookup — O(1).
+    std::unordered_map<std::string, std::size_t> ext_hash_;
+
+    /// \brief Sorted vector for compound (multi-dot) extensions — longest match wins.
+    std::vector<ExtEntry> compound_ext_map_;
+
+    /// \brief Single-entry cache: last successful lookup extension.
+    mutable std::string cached_ext_;
+
+    /// \brief Single-entry cache: last successful lookup handler.
+    mutable const FormatHandler* cached_handler_ = nullptr;
 };
 
 }  // namespace oeio
