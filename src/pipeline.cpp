@@ -21,7 +21,7 @@ public:
                       std::function<bool(const OEChem::OEMolBase&)> pred)
         : upstream_(std::move(upstream)), pred_(std::move(pred)) {}
 
-    bool next(OEChem::OEGraphMol& mol) override {
+    OEIO_HOT bool next(OEChem::OEGraphMol& mol) override {
         while (upstream_->next(mol)) {
             if (pred_(mol))
                 return true;
@@ -29,12 +29,24 @@ public:
         return false;
     }
 
-    bool next(OEChem::OEMolBase& mol) override {
+    OEIO_HOT bool next(OEChem::OEMolBase& mol) override {
         while (upstream_->next(mol)) {
             if (pred_(mol))
                 return true;
         }
         return false;
+    }
+
+    /// Collapse a second predicate into this filter, returning a new
+    /// FilteredMolSource that combines both predicates.
+    std::unique_ptr<MolSource> collapse_with(
+            std::function<bool(const OEChem::OEMolBase&)> other_pred) {
+        auto combined = [p1 = std::move(pred_), p2 = std::move(other_pred)]
+                        (const OEChem::OEMolBase& mol) {
+            return p1(mol) && p2(mol);
+        };
+        return std::make_unique<FilteredMolSource>(
+            std::move(upstream_), std::move(combined));
     }
 
 private:
@@ -57,7 +69,7 @@ public:
                          std::function<void(OEChem::OEGraphMol&)> fn)
         : upstream_(std::move(upstream)), fn_(std::move(fn)) {}
 
-    bool next(OEChem::OEGraphMol& mol) override {
+    OEIO_HOT bool next(OEChem::OEGraphMol& mol) override {
         if (!upstream_->next(mol))
             return false;
         fn_(mol);
@@ -75,13 +87,13 @@ private:
 // Pipe operators
 // ============================================================================
 
-void operator|(MolRange&& range, Writer&& writer) {
+OEIO_FLATTEN void operator|(MolRange&& range, Writer&& writer) {
     for (auto& mol : range)
         writer.add(mol);
     writer.close();
 }
 
-void operator|(MolRange&& range, Writer& writer) {
+OEIO_FLATTEN void operator|(MolRange&& range, Writer& writer) {
     for (auto& mol : range)
         writer.add(mol);
     // Do not close — caller owns the writer.
@@ -93,6 +105,17 @@ void operator|(MolRange&& range, Writer& writer) {
 
 MolRange filter(MolRange&& range, std::function<bool(const OEChem::OEMolBase&)> pred) {
     auto source = range.release_source();
+
+    // Filter chain collapsing: if the upstream is already a FilteredMolSource,
+    // combine the predicates into a single filter to eliminate one virtual
+    // dispatch level per molecule.
+    auto* upstream_filter = dynamic_cast<detail::FilteredMolSource*>(source.get());
+    if (upstream_filter) {
+        auto combined_source = upstream_filter->collapse_with(std::move(pred));
+        source.reset();
+        return MolRange(std::move(combined_source));
+    }
+
     return MolRange(std::make_unique<detail::FilteredMolSource>(
         std::move(source), std::move(pred)));
 }

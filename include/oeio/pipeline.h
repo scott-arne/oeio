@@ -22,7 +22,7 @@ namespace oeio {
 ///
 /// \param range The molecule range to read from (rvalue).
 /// \param writer The writer to write to (rvalue).
-void operator|(MolRange&& range, Writer&& writer);
+OEIO_FLATTEN void operator|(MolRange&& range, Writer&& writer);
 
 /// \brief Pipe a MolRange into a Writer (lvalue Writer).
 ///
@@ -30,7 +30,7 @@ void operator|(MolRange&& range, Writer&& writer);
 ///
 /// \param range The molecule range to read from (rvalue).
 /// \param writer The writer to write to (lvalue reference).
-void operator|(MolRange&& range, Writer& writer);
+OEIO_FLATTEN void operator|(MolRange&& range, Writer& writer);
 
 // ============================================================================
 // Functional pipeline operations
@@ -44,7 +44,7 @@ void operator|(MolRange&& range, Writer& writer);
 /// \param range The input molecule range (rvalue).
 /// \param pred The predicate function (returns true to keep the molecule).
 /// \returns A new MolRange with filtered molecules.
-MolRange filter(MolRange&& range, std::function<bool(const OEChem::OEMolBase&)> pred);
+OEIO_HOT MolRange filter(MolRange&& range, std::function<bool(const OEChem::OEMolBase&)> pred);
 
 /// \brief Transform molecules by applying a function.
 ///
@@ -54,6 +54,6 @@ MolRange filter(MolRange&& range, std::function<bool(const OEChem::OEMolBase&)> 
 /// \param range The input molecule range (rvalue).
 /// \param fn The transformation function (modifies the molecule in-place).
 /// \returns A new MolRange with transformed molecules.
-MolRange transform(MolRange&& range, std::function<void(OEChem::OEGraphMol&)> fn);
+OEIO_HOT MolRange transform(MolRange&& range, std::function<void(OEChem::OEGraphMol&)> fn);
 
 }  // namespace oeio

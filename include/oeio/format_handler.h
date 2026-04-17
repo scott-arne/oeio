@@ -11,6 +11,14 @@
 #include <oechem.h>
 #include <oeplatform.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+#define OEIO_HOT [[gnu::hot]]
+#define OEIO_FLATTEN __attribute__((flatten))
+#else
+#define OEIO_HOT
+#define OEIO_FLATTEN
+#endif
+
 namespace oeio {
 
 /// \brief Metadata describing a molecular file format.
@@ -48,7 +56,7 @@ public:
     ///
     /// \param mol The molecule to populate with data from the source.
     /// \returns true if a molecule was successfully read, false if end-of-stream or error.
-    virtual bool next(OEChem::OEGraphMol& mol) = 0;
+    OEIO_HOT virtual bool next(OEChem::OEGraphMol& mol) = 0;
 
     /// \brief Read the next molecule into an OEMolBase reference.
     ///
@@ -57,7 +65,7 @@ public:
     ///
     /// \param mol The molecule base reference to populate.
     /// \returns true if a molecule was successfully read, false if end-of-stream or error.
-    virtual bool next(OEChem::OEMolBase& mol) {
+    OEIO_HOT virtual bool next(OEChem::OEMolBase& mol) {
         OEChem::OEGraphMol temp;
         if (!next(temp)) return false;
         OEChem::OECopyMol(mol, temp);

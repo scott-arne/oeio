@@ -168,5 +168,23 @@ TEST_F(PipelineTest, FilteredReadToOEMolBase) {
     EXPECT_EQ(count_molecules(out_path), 3);
 }
 
+TEST_F(PipelineTest, ChainedFiltersCollapse) {
+    std::string in_path = write_test_molecules();
+    std::string out_path = (tmpdir_ / "double_filtered.sdf").string();
+
+    // Chain two filters — should produce same result as a single combined filter
+    oeio::filter(
+        oeio::filter(oeio::read(in_path), [](const OEChem::OEMolBase& mol) {
+            return mol.NumAtoms() > 1;  // excludes methane
+        }),
+        [](const OEChem::OEMolBase& mol) {
+            return mol.NumAtoms() > 3;  // excludes ethanol
+        }
+    ) | oeio::write(out_path);
+
+    // Should have 2 molecules: benzene (6) and acetic_acid (4)
+    EXPECT_EQ(count_molecules(out_path), 2);
+}
+
 }  // namespace test
 }  // namespace oeio
