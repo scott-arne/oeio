@@ -502,15 +502,13 @@ public:
 
     /// Read the next molecule into an OEMolBase reference.
     ///
-    /// Uses a local OEGraphMol as intermediary because MolSource::next()
-    /// requires OEGraphMol&, but the cross-SWIG-runtime pointer from Python
-    /// is an OEMolBase* (not an OEGraphMol*).
+    /// Dispatches to MolSource::next(OEMolBase&) which is overridden by
+    /// OEChemMolSource for zero-copy reading directly into the Python
+    /// molecule's OEMolBase implementation. The source is responsible
+    /// for clearing the molecule before reading.
     bool next(OEChem::OEMolBase& mol) {
         if (!source_) return false;
-        OEChem::OEGraphMol temp;
-        if (!source_->next(temp)) return false;
-        OEChem::OECopyMol(mol, temp);
-        return true;
+        return source_->next(mol);
     }
 
 private:
