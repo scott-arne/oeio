@@ -15,6 +15,7 @@ option(OEIO_BUILD_TESTS "Build tests" ON)
 option(OEIO_BUILD_PYTHON "Build Python bindings" ON)
 option(OEIO_UNIVERSAL2 "Build universal2 binary for macOS" OFF)
 option(OEIO_USE_STABLE_ABI "Use Python stable ABI" ON)
+option(OEIO_BUILD_BENCHMARKS "Build benchmarks" OFF)
 
 if(APPLE AND OEIO_UNIVERSAL2)
     set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "Build architectures" FORCE)
@@ -84,6 +85,11 @@ endif()
 # Python bindings
 if(OEIO_BUILD_PYTHON AND SWIG_FOUND)
     add_subdirectory(swig)
+endif()
+
+# Benchmarks
+if(OEIO_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
 endif()
 
 # Install
