@@ -49,6 +49,20 @@ public:
     /// \param mol The molecule to populate with data from the source.
     /// \returns true if a molecule was successfully read, false if end-of-stream or error.
     virtual bool next(OEChem::OEGraphMol& mol) = 0;
+
+    /// \brief Read the next molecule into an OEMolBase reference.
+    ///
+    /// Default implementation reads into a temp OEGraphMol and copies.
+    /// Override for zero-copy when the handler can read into OEMolBase directly.
+    ///
+    /// \param mol The molecule base reference to populate.
+    /// \returns true if a molecule was successfully read, false if end-of-stream or error.
+    virtual bool next(OEChem::OEMolBase& mol) {
+        OEChem::OEGraphMol temp;
+        if (!next(temp)) return false;
+        OEChem::OECopyMol(mol, temp);
+        return true;
+    }
 };
 
 /// \brief Abstract base class for writing molecules to a destination.

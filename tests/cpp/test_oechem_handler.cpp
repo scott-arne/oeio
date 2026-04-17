@@ -183,5 +183,25 @@ TEST_F(OEChemHandlerTest, RoundTrip) {
     }
 }
 
+TEST_F(OEChemHandlerTest, ReadIntoOEMolBase) {
+    std::string path = write_temp_smi();
+
+    auto* handler = oeio::FormatRegistry::instance().lookup(path);
+    ASSERT_NE(handler, nullptr);
+    auto source = handler->make_reader(path, std::any{});
+    ASSERT_NE(source, nullptr);
+
+    // Read into OEMolBase& (the new virtual overload)
+    OEChem::OEGraphMol container;
+    OEChem::OEMolBase& mol_base = container;
+    int count = 0;
+    while (source->next(mol_base)) {
+        EXPECT_GT(mol_base.NumAtoms(), 0);
+        ++count;
+        container.Clear();
+    }
+    EXPECT_EQ(count, 2);
+}
+
 }  // namespace test
 }  // namespace oeio

@@ -156,5 +156,17 @@ TEST_F(PipelineTest, ChainedFilterTransformWrite) {
     }
 }
 
+TEST_F(PipelineTest, FilteredReadToOEMolBase) {
+    std::string in_path = write_test_molecules();
+    std::string out_path = (tmpdir_ / "molbase_filtered.sdf").string();
+
+    // Filter + write pipeline (exercises FilteredMolSource)
+    oeio::filter(oeio::read(in_path), [](const OEChem::OEMolBase& mol) {
+        return mol.NumAtoms() > 2;
+    }) | oeio::write(out_path);
+
+    EXPECT_EQ(count_molecules(out_path), 3);
+}
+
 }  // namespace test
 }  // namespace oeio

@@ -42,6 +42,11 @@ public:
         return OEChem::OEReadMolecule(ifs_, mol);
     }
 
+    bool next(OEChem::OEMolBase& mol) override {
+        mol.Clear();
+        return OEChem::OEReadMolecule(ifs_, mol);
+    }
+
 private:
     OEChem::oemolistream ifs_;
 };

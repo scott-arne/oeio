@@ -29,6 +29,14 @@ public:
         return false;
     }
 
+    bool next(OEChem::OEMolBase& mol) override {
+        while (upstream_->next(mol)) {
+            if (pred_(mol))
+                return true;
+        }
+        return false;
+    }
+
 private:
     std::unique_ptr<MolSource> upstream_;
     std::function<bool(const OEChem::OEMolBase&)> pred_;
