@@ -187,3 +187,42 @@ class TestVersion:
 
         assert hasattr(oeio, "__version_info__")
         assert oeio.__version_info__ == (0, 1, 0)
+
+
+class TestBatchRead:
+    """Test oeio.batch_read() batch molecule reading."""
+
+    def test_batch_read_returns_all_molecules(self, sdf_file):
+        """batch_read yields same molecules as read."""
+        import oeio
+
+        mols = list(oeio.batch_read(sdf_file))
+        assert len(mols) == 2
+
+    def test_batch_read_preserves_titles(self, sdf_file):
+        """Titles preserved through batch reading."""
+        import oeio
+
+        titles = [mol.GetTitle() for mol in oeio.batch_read(sdf_file)]
+        assert titles == ["ethanol", "benzene"]
+
+    def test_batch_read_returns_oegraphmol(self, sdf_file):
+        """batch_read yields oechem.OEGraphMol instances."""
+        import oeio
+
+        for mol in oeio.batch_read(sdf_file):
+            assert isinstance(mol, oechem.OEGraphMol)
+
+    def test_batch_read_small_batch_size(self, smi_file):
+        """batch_read with batch_size=1 still works."""
+        import oeio
+
+        mols = list(oeio.batch_read(smi_file, batch_size=1))
+        assert len(mols) == 3
+
+    def test_batch_read_large_batch_size(self, sdf_file):
+        """batch_read with batch_size larger than file still works."""
+        import oeio
+
+        mols = list(oeio.batch_read(sdf_file, batch_size=10000))
+        assert len(mols) == 2
