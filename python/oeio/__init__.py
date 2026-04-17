@@ -219,7 +219,6 @@ _check_openeye_version()
 from .oeio import (
     read,
     write,
-    batch_read,
     formats,
     filter,
     transform,
@@ -231,7 +230,6 @@ from .oeio import (
     _WriterHandle,
     _open_reader,
     _open_writer,
-    _copy_mol,
 )
 
 __all__ = [
@@ -239,7 +237,6 @@ __all__ = [
     "__version_info__",
     "read",
     "write",
-    "batch_read",
     "formats",
     "filter",
     "transform",

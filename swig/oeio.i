@@ -374,7 +374,6 @@ OE_CROSS_RUNTIME_REF_TYPEMAPS(OEDocking::OEReceptor, _oeio_is_oereceptor, "Expec
 // Additional STL typemaps
 // ============================================================================
 %include "std_vector.i"
-%template(OEGraphMolVector) std::vector<OEChem::OEGraphMol>;
 
 // ============================================================================
 // Version macros
@@ -475,7 +474,6 @@ namespace oeio {
 class _ReaderHandle {
 public:
     bool next(OEChem::OEMolBase& mol);
-    std::vector<OEChem::OEGraphMol> next_batch(int max_count);
 private:
     _ReaderHandle();
 };
@@ -490,7 +488,6 @@ private:
 };
 _ReaderHandle* _open_reader(const std::string& path);
 _WriterHandle* _open_writer(const std::string& path);
-void _copy_mol(OEChem::OEMolBase& dst, const OEChem::OEGraphMol& src);
 
 }  // namespace oeio
 
@@ -512,20 +509,6 @@ public:
     bool next(OEChem::OEMolBase& mol) {
         if (!source_) return false;
         return source_->next(mol);
-    }
-
-    std::vector<OEChem::OEGraphMol> next_batch(int max_count) {
-        std::vector<OEChem::OEGraphMol> batch;
-        if (!source_) return batch;
-        batch.reserve(max_count);
-        for (int i = 0; i < max_count; ++i) {
-            batch.emplace_back();
-            if (!source_->next(batch.back())) {
-                batch.pop_back();
-                break;
-            }
-        }
-        return batch;
     }
 
 private:
@@ -588,13 +571,6 @@ _WriterHandle* _open_writer(const std::string& path) {
         return nullptr;
     }
     return new _WriterHandle(std::move(sink));
-}
-
-/// Copy a molecule from oeio's SWIG v5 runtime to a Python OEMolBase
-/// (SWIG v4 runtime). The dst parameter goes through the cross-runtime
-/// input typemap; src is a native oeio object.
-void _copy_mol(OEChem::OEMolBase& dst, const OEChem::OEGraphMol& src) {
-    OEChem::OECopyMol(dst, src);
 }
 
 }  // namespace oeio
@@ -706,39 +682,6 @@ def formats():
     :returns: List of FormatInfo objects.
     """
     return list(FormatRegistry.instance().formats())
-
-
-def batch_read(path, batch_size=1000):
-    """Read molecules in batches for higher throughput.
-
-    Amortizes the Python-to-C++ call overhead by reading ``batch_size``
-    molecules per SWIG boundary crossing.
-
-    :param path: Path to a molecular file.
-    :param batch_size: Number of molecules per batch.
-    :returns: Generator yielding OEGraphMol objects.
-
-    Example::
-
-        for mol in oeio.batch_read("large_file.sdf", batch_size=5000):
-            process(mol)
-    """
-    from openeye import oechem
-
-    reader = _open_reader(str(path))
-    if reader is None:
-        return
-    try:
-        while True:
-            batch = reader.next_batch(batch_size)
-            if not batch:
-                break
-            for cmol in batch:
-                mol = oechem.OEGraphMol()
-                _copy_mol(mol, cmol)
-                yield mol
-    finally:
-        del reader
 
 
 __version__ = "0.1.0"
