@@ -594,30 +594,63 @@ _WriterHandle* _open_writer(const std::string& path) {
 // Module-level Python convenience API
 // ============================================================================
 %pythoncode %{
+class Reader:
+    """Iterable, closeable molecule reader.
+
+    Returned by :func:`oeio.read`. Can be iterated directly or used as a
+    context manager for deterministic cleanup::
+
+        with oeio.read("mols.sdf") as reader:
+            for mol in reader:
+                ...
+
+    :ivar _handle: Underlying ``_ReaderHandle`` or ``None`` after close.
+    :ivar _closed: ``True`` once :meth:`close` has been called.
+    """
+
+    def __init__(self, handle):
+        self._handle = handle
+        self._closed = False
+
+    def __iter__(self):
+        from openeye import oechem
+
+        if self._closed:
+            raise ValueError("I/O operation on closed reader")
+        mol = oechem.OEGraphMol()
+        while self._handle.next(mol):
+            yield mol
+            mol = oechem.OEGraphMol()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def close(self):
+        """Release the underlying reader. Idempotent."""
+        if not self._closed:
+            self._handle = None
+            self._closed = True
+
+
 def read(path, config=None):
-    """Read molecules from a file path.
+    """Open a molecule reader for ``path``.
 
     :param path: Path to a molecular file.
     :param config: Optional handler-specific configuration.
-    :returns: Generator yielding OEGraphMol objects.
+    :returns: A :class:`Reader` that is both iterable and a context manager.
 
     Example::
 
-        for mol in oeio.read("input.sdf"):
-            print(mol.GetTitle())
+        with oeio.read("input.sdf") as reader:
+            for mol in reader:
+                print(mol.GetTitle())
     """
-    from openeye import oechem
-
-    reader = _open_reader(str(path))
-    if reader is None:
-        return
-    try:
-        mol = oechem.OEGraphMol()
-        while reader.next(mol):
-            yield mol
-            mol = oechem.OEGraphMol()
-    finally:
-        del reader
+    handle = _open_reader(str(path))
+    return Reader(handle)
 
 
 def write(path, config=None):

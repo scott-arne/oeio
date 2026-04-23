@@ -187,3 +187,63 @@ class TestVersion:
 
         assert hasattr(oeio, "__version_info__")
         assert oeio.__version_info__ == (0, 1, 0)
+
+
+class TestReaderContextManager:
+    """Test oeio.Reader context-manager and iteration semantics."""
+
+    def test_read_as_context_manager(self, sdf_file):
+        """`with oeio.read(...)` yields the same molecules as bare iteration."""
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            titles = [mol.GetTitle() for mol in reader]
+        assert titles == ["ethanol", "benzene"]
+
+    def test_read_write_composed(self, sdf_file, tmp_path):
+        """`with oeio.read(...) as ifs, oeio.write(...) as ofs` round-trips mols."""
+        import oeio
+
+        out_path = str(tmp_path / "composed.sdf")
+        with oeio.read(sdf_file) as ifs, oeio.write(out_path) as ofs:
+            for mol in ifs:
+                ofs.add(mol)
+
+        with oeio.read(out_path) as reader:
+            titles = [mol.GetTitle() for mol in reader]
+        assert titles == ["ethanol", "benzene"]
+
+    def test_iterate_after_close_raises(self, sdf_file):
+        """Iterating a reader after close() raises ValueError."""
+        import pytest
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        with pytest.raises(ValueError, match="closed reader"):
+            list(reader)
+
+    def test_double_close_is_noop(self, sdf_file):
+        """Calling close() twice is safe and does not raise."""
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        reader.close()
+
+    def test_read_without_context_manager(self, sdf_file):
+        """`for mol in oeio.read(path):` still works without `with`."""
+        import oeio
+
+        titles = [mol.GetTitle() for mol in oeio.read(sdf_file)]
+        assert titles == ["ethanol", "benzene"]
+
+    def test_reader_is_exported(self, sdf_file):
+        """oeio.read(...) returns an instance of the exported oeio.Reader."""
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        try:
+            assert isinstance(reader, oeio.Reader)
+        finally:
+            reader.close()
