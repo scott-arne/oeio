@@ -1,13 +1,6 @@
 """Shared fixtures and configuration for oeio Python tests."""
 
-import sys
-from pathlib import Path
-
 import pytest
-
-# Ensure python/oeio module can be imported
-repo_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(repo_root / "python"))
 
 pytest.importorskip("openeye.oechem", reason="OpenEye Toolkits not installed")
 
