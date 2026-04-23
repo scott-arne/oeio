@@ -199,3 +199,16 @@ class TestReaderContextManager:
         with oeio.read(sdf_file) as reader:
             titles = [mol.GetTitle() for mol in reader]
         assert titles == ["ethanol", "benzene"]
+
+    def test_read_write_composed(self, sdf_file, tmp_path):
+        """`with oeio.read(...) as ifs, oeio.write(...) as ofs` round-trips mols."""
+        import oeio
+
+        out_path = str(tmp_path / "composed.sdf")
+        with oeio.read(sdf_file) as ifs, oeio.write(out_path) as ofs:
+            for mol in ifs:
+                ofs.add(mol)
+
+        with oeio.read(out_path) as reader:
+            titles = [mol.GetTitle() for mol in reader]
+        assert titles == ["ethanol", "benzene"]
