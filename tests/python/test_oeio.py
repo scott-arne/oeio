@@ -187,3 +187,15 @@ class TestVersion:
 
         assert hasattr(oeio, "__version_info__")
         assert oeio.__version_info__ == (0, 1, 0)
+
+
+class TestReaderContextManager:
+    """Test oeio.Reader context-manager and iteration semantics."""
+
+    def test_read_as_context_manager(self, sdf_file):
+        """`with oeio.read(...)` yields the same molecules as bare iteration."""
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            titles = [mol.GetTitle() for mol in reader]
+        assert titles == ["ethanol", "benzene"]
