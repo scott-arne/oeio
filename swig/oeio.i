@@ -617,8 +617,6 @@ class Reader:
 
         if self._closed:
             raise ValueError("I/O operation on closed reader")
-        if self._handle is None:
-            return
         mol = oechem.OEGraphMol()
         while self._handle.next(mol):
             yield mol
