@@ -22,7 +22,7 @@ Writer::~Writer() {
 Writer::Writer(Writer&&) noexcept = default;
 Writer& Writer::operator=(Writer&&) noexcept = default;
 
-bool Writer::add(const OEChem::OEMolBase& mol) {
+bool Writer::append(const OEChem::OEMolBase& mol) {
     return sink_ ? sink_->write(mol) : false;
 }
 

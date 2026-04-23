@@ -480,7 +480,7 @@ private:
 
 class _WriterHandle {
 public:
-    bool add(const OEChem::OEMolBase& mol);
+    bool append(const OEChem::OEMolBase& mol);
     void close();
     ~_WriterHandle();
 private:
@@ -520,7 +520,7 @@ public:
     _WriterHandle(std::unique_ptr<MolSink> sink)
         : sink_(std::move(sink)) {}
 
-    bool add(const OEChem::OEMolBase& mol) {
+    bool append(const OEChem::OEMolBase& mol) {
         return sink_ ? sink_->write(mol) : false;
     }
 
@@ -666,7 +666,7 @@ def write(path, config=None):
 
         with oeio.write("output.sdf") as writer:
             for mol in oeio.read("input.sdf"):
-                writer.add(mol)
+                writer.append(mol)
     """
     return _open_writer(str(path))
 

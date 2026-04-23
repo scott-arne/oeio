@@ -53,7 +53,7 @@ class TestWrite:
         out_path = str(tmp_path / "output.sdf")
         with oeio.write(out_path) as writer:
             for mol in oeio.read(sdf_file):
-                writer.add(mol)
+                writer.append(mol)
 
         # Verify by reading back via OEChem
         ifs = oechem.oemolistream()
@@ -76,7 +76,7 @@ class TestWrite:
         with writer as w:
             assert w is writer
             for mol in oeio.read(sdf_file):
-                w.add(mol)
+                w.append(mol)
 
     def test_roundtrip_preserves_titles(self, sdf_file, tmp_path):
         """Titles survive a read-write-read roundtrip."""
@@ -85,7 +85,7 @@ class TestWrite:
         out_path = str(tmp_path / "roundtrip.sdf")
         with oeio.write(out_path) as writer:
             for mol in oeio.read(sdf_file):
-                writer.add(mol)
+                writer.append(mol)
 
         titles = [mol.GetTitle() for mol in oeio.read(out_path)]
         assert titles == ["ethanol", "benzene"]
@@ -207,7 +207,7 @@ class TestReaderContextManager:
         out_path = str(tmp_path / "composed.sdf")
         with oeio.read(sdf_file) as ifs, oeio.write(out_path) as ofs:
             for mol in ifs:
-                ofs.add(mol)
+                ofs.append(mol)
 
         with oeio.read(out_path) as reader:
             titles = [mol.GetTitle() for mol in reader]

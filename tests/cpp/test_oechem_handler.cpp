@@ -114,12 +114,12 @@ TEST_F(OEChemHandlerTest, WriteSDF) {
     OEChem::OEGraphMol mol;
     OEChem::OESmilesToMol(mol, "CCO");
     mol.SetTitle("ethanol");
-    writer.add(mol);
+    writer.append(mol);
 
     mol.Clear();
     OEChem::OESmilesToMol(mol, "CC(=O)O");
     mol.SetTitle("acetic_acid");
-    writer.add(mol);
+    writer.append(mol);
 
     writer.close();
 
@@ -157,7 +157,7 @@ TEST_F(OEChemHandlerTest, RoundTrip) {
         auto range = oeio::read(in_path);
         auto writer = oeio::write(out_path);
         for (auto& mol : range) {
-            writer.add(mol);
+            writer.append(mol);
         }
         writer.close();
     }

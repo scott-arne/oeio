@@ -78,7 +78,7 @@ import oeio
 
 with oeio.write("output.sdf") as writer:
     for mol in oeio.read("input.sdf"):
-        writer.add(mol)
+        writer.append(mol)
 ```
 
 **Filtering:**
@@ -106,7 +106,7 @@ prepared = oeio.transform(
 )
 with oeio.write("prepared.sdf") as writer:
     for mol in prepared:
-        writer.add(mol)
+        writer.append(mol)
 ```
 
 **Listing registered formats:**
