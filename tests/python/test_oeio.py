@@ -230,3 +230,10 @@ class TestReaderContextManager:
         reader = oeio.read(sdf_file)
         reader.close()
         reader.close()
+
+    def test_read_without_context_manager(self, sdf_file):
+        """`for mol in oeio.read(path):` still works without `with`."""
+        import oeio
+
+        titles = [mol.GetTitle() for mol in oeio.read(sdf_file)]
+        assert titles == ["ethanol", "benzene"]
