@@ -211,10 +211,34 @@ def _check_openeye_version():
         )
 
 
+def _load_plugins():
+    """Discover and load oeio format handler plugins via entry points.
+
+    Scans for packages that declare an ``oeio.plugins`` entry point group.
+    Each entry point should point to a module whose import triggers
+    OEIO_REGISTER_FORMAT registration at the C++ level.
+
+    A broken or missing plugin emits a warning but does not prevent oeio
+    from loading.
+    """
+    from importlib.metadata import entry_points
+
+    for ep in entry_points(group="oeio.plugins"):
+        try:
+            ep.load()
+        except Exception as exc:
+            warnings.warn(
+                f"oeio: failed to load plugin '{ep.name}': {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+
 _ensure_library_compat()
 _preload_shared_libs()
 _preload_bundled_libs()
 _check_openeye_version()
+_load_plugins()
 
 from .oeio import (
     read,
