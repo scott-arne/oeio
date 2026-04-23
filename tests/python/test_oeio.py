@@ -222,3 +222,11 @@ class TestReaderContextManager:
         reader.close()
         with pytest.raises(ValueError, match="closed reader"):
             list(reader)
+
+    def test_double_close_is_noop(self, sdf_file):
+        """Calling close() twice is safe and does not raise."""
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        reader.close()
