@@ -237,3 +237,13 @@ class TestReaderContextManager:
 
         titles = [mol.GetTitle() for mol in oeio.read(sdf_file)]
         assert titles == ["ethanol", "benzene"]
+
+    def test_reader_is_exported(self, sdf_file):
+        """oeio.read(...) returns an instance of the exported oeio.Reader."""
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        try:
+            assert isinstance(reader, oeio.Reader)
+        finally:
+            reader.close()
