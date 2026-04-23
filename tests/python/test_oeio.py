@@ -212,3 +212,13 @@ class TestReaderContextManager:
         with oeio.read(out_path) as reader:
             titles = [mol.GetTitle() for mol in reader]
         assert titles == ["ethanol", "benzene"]
+
+    def test_iterate_after_close_raises(self, sdf_file):
+        """Iterating a reader after close() raises ValueError."""
+        import pytest
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        with pytest.raises(ValueError, match="closed reader"):
+            list(reader)
