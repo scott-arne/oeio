@@ -285,6 +285,11 @@ jobs:
     defaults:
       run:
         shell: bash
+    env:
+      # ilammy/msvc-dev-cmd still ships with `using: node20`; opt in to Node.js 24
+      # so the action keeps working past GitHub's June 2 2026 cutover without
+      # waiting on an upstream release.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - uses: actions/checkout@v6
