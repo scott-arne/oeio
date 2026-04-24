@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "oeio"
-version = "0.2.0"
+version = "0.2.1"
 description = "Modular package for deploying new readers and writers for the OpenEye Toolkits"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -49,6 +49,15 @@ OEIO_BUILD_PYTHON = "ON"
 OPENEYE_USE_SHARED = "ON"
 OEIO_USE_STABLE_ABI = "ON"
 OEIO_UNIVERSAL2 = "OFF"
+
+# Windows: OpenEye ships static-only .lib files in the C++ SDK, and the
+# openeye-toolkits Python wheel flattens DLLs into openeye/libs/ rather than
+# a platform subdirectory (so FindOpenEyeDLLSDirectory() fails). Static-link
+# against the SDK instead; SWIG cross-runtime pointers still interop with
+# openeye.oechem at runtime because the OE toolkit versions match.
+[[tool.scikit-build.overrides]]
+if.platform-system = "win32"
+cmake.define.OPENEYE_USE_SHARED = "OFF"
 
 # =============================================================================
 # TOML-driven build configuration for scripts/build_python.py

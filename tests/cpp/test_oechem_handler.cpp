@@ -6,7 +6,6 @@
 
 #include <filesystem>
 #include <string>
-#include <unistd.h>
 
 namespace oeio {
 namespace test {

@@ -17,10 +17,14 @@ __pycache__/
 *.so
 *.dylib
 *.a
+*.lib
+*.pyd
 
 # SWIG generated
 python/oeio/oeio.py
 python/oeio/_oeio.so
+python/oeio/_oeio.pyd
+python/oeio/oeio.lib
 python/oeio/_build_info.py
 
 # IDE
