@@ -172,24 +172,26 @@ class TestFormats:
 
 
 class TestVersion:
-    """Test version information."""
+    """Test version information.
+
+    The hardcoded version below is kept in sync with the rest of the repo
+    via ``vrzn.toml``. Run ``vrzn bump`` (or ``vrzn set``) to update all
+    version locations atomically.
+    """
 
     def test_version_string(self):
-        """__version__ is accessible and well-formed (X.Y.Z)."""
-        import re
+        """__version__ is accessible and matches the expected release."""
         import oeio
 
         assert hasattr(oeio, "__version__")
-        assert re.fullmatch(r"\d+\.\d+\.\d+", oeio.__version__)
+        assert oeio.__version__ == "0.2.1"
 
     def test_version_info(self):
-        """__version_info__ is a 3-tuple of integers matching __version__."""
+        """__version_info__ matches __version__."""
         import oeio
 
         assert hasattr(oeio, "__version_info__")
-        assert len(oeio.__version_info__) == 3
-        assert all(isinstance(x, int) for x in oeio.__version_info__)
-        assert ".".join(str(x) for x in oeio.__version_info__) == oeio.__version__
+        assert oeio.__version_info__ == (0, 2, 1)
 
 
 class TestReaderContextManager:

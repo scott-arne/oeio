@@ -27,3 +27,15 @@ prefix = "OEIO"
 file = "swig/oeio.i"
 type = "c-define"
 prefix = "OEIO"
+
+[[locations]]
+file = "tests/python/test_oeio.py"
+type = "custom"
+template = 'assert oeio\.__version__ == "{version}"'
+label = "test-version-string"
+
+[[locations]]
+file = "tests/python/test_oeio.py"
+type = "custom"
+template = 'assert oeio\.__version_info__ == \({info_tuple}\)'
+label = "test-version-info"
