@@ -3,6 +3,8 @@
 
 #include "oeio/format_registry.h"
 
+#include "oeio/exceptions.h"
+
 #include <algorithm>
 
 #include <oesystem.h>
@@ -162,9 +164,8 @@ std::vector<FormatInfo> FormatRegistry::formats() const {
 
 std::unique_ptr<MolSource> FormatHandler::make_reader(
     OEPlatform::oeifstream& /*stream*/, const std::any& /*config*/) const {
-    OESystem::OEThrow.Fatal(
+    throw FormatError(
         "oeio: stream-based reading not supported for this format");
-    return nullptr;
 }
 
 }  // namespace oeio

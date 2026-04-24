@@ -1,6 +1,7 @@
 /// \file oechem_handler.cpp
 /// \brief Built-in OEChem format handler for native OpenEye file formats.
 
+#include "oeio/exceptions.h"
 #include "oeio/format_handler.h"
 #include "oeio/format_registry.h"
 #include "oeio/oechem_config.h"
@@ -24,8 +25,7 @@ public:
     /// \param cfg Reader configuration.
     OEChemMolSource(const std::string& path, const oechem::ReaderConfig& cfg) {
         if (!ifs_.open(path)) {
-            OESystem::OEThrow.Fatal(
-                "oeio: unable to open '%s' for reading", path.c_str());
+            throw FileError("oeio: unable to open '" + path + "' for reading");
         }
         if (cfg.format != 0) {
             ifs_.SetFormat(cfg.format);
@@ -64,8 +64,7 @@ public:
     /// \param cfg Writer configuration.
     OEChemMolSink(const std::string& path, const oechem::WriterConfig& cfg) {
         if (!ofs_.open(path)) {
-            OESystem::OEThrow.Fatal(
-                "oeio: unable to open '%s' for writing", path.c_str());
+            throw FileError("oeio: unable to open '" + path + "' for writing");
         }
         if (cfg.format != 0) {
             ofs_.SetFormat(cfg.format);

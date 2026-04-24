@@ -89,13 +89,13 @@ private:
 
 OEIO_FLATTEN void operator|(MolRange&& range, Writer&& writer) {
     for (auto& mol : range)
-        writer.add(mol);
+        writer.append(mol);
     writer.close();
 }
 
 OEIO_FLATTEN void operator|(MolRange&& range, Writer& writer) {
     for (auto& mol : range)
-        writer.add(mol);
+        writer.append(mol);
     // Do not close — caller owns the writer.
 }
 

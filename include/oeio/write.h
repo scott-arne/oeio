@@ -40,7 +40,7 @@ public:
     ///
     /// \param mol The molecule to write.
     /// \returns true if the molecule was successfully written, false on error.
-    bool add(const OEChem::OEMolBase& mol);
+    bool append(const OEChem::OEMolBase& mol);
 
     /// \brief Close the writer and flush buffered data.
     void close();

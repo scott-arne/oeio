@@ -50,7 +50,7 @@ def bench_oeio_roundtrip(path, iterations=5):
             count = 0
             with oeio.write(out_path) as writer:
                 for mol in oeio.read(path):
-                    writer.add(mol)
+                    writer.append(mol)
                     count += 1
             elapsed = time.perf_counter() - start
             times.append(elapsed)

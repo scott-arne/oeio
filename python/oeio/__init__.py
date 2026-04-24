@@ -6,8 +6,8 @@ import os
 import re
 import warnings
 
-__version__ = "0.1.0"
-__version_info__ = (0, 1, 0)
+__version__ = "0.2.0"
+__version_info__ = (0, 2, 0)
 
 
 def _ensure_library_compat():
@@ -211,18 +211,44 @@ def _check_openeye_version():
         )
 
 
+def _load_plugins():
+    """Discover and load oeio format handler plugins via entry points.
+
+    Scans for packages that declare an ``oeio.plugins`` entry point group.
+    Each entry point should point to a module whose import triggers
+    OEIO_REGISTER_FORMAT registration at the C++ level.
+
+    A broken or missing plugin emits a warning but does not prevent oeio
+    from loading.
+    """
+    from importlib.metadata import entry_points
+
+    for ep in entry_points(group="oeio.plugins"):
+        try:
+            ep.load()
+        except Exception as exc:
+            warnings.warn(
+                f"oeio: failed to load plugin '{ep.name}': {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+
 _ensure_library_compat()
 _preload_shared_libs()
 _preload_bundled_libs()
 _check_openeye_version()
 
 from .oeio import (
-    read,
-    write,
-    formats,
+    read as _cpp_read,
+    write as _cpp_write,
+    formats as _cpp_formats,
     filter,
     transform,
     Reader,
+    Error,
+    FormatError,
+    FileError,
     FormatInfo,
     FormatRegistry,
     ReaderConfig,
@@ -233,6 +259,174 @@ from .oeio import (
     _open_writer,
 )
 
+
+# ============================================================================
+# Python-level plugin registry
+# ============================================================================
+# Plugins that are installed as separate packages (e.g. oemaestro) each get
+# their own copy of the oeio C++ FormatRegistry when statically linked.
+# The Python-level registry bridges this gap: plugins register their
+# reader/writer factories here, and the top-level read()/write()/formats()
+# functions check this registry alongside the C++ one.
+
+class _PluginHandler:
+    """Descriptor for a Python-registered format handler.
+
+    :param name: Human-readable format name (e.g. "Maestro").
+    :param extensions: List of file extensions (e.g. [".mae", ".mae.gz"]).
+    :param description: Short description of the format.
+    :param reader_factory: Callable(path) -> iterator of OEGraphMol, or None.
+    :param writer_factory: Callable(path) -> context manager with add(mol), or None.
+    """
+
+    def __init__(self, name, extensions, description="",
+                 reader_factory=None, writer_factory=None):
+        self.name = name
+        self.extensions = list(extensions)
+        self.description = description
+        self.reader_factory = reader_factory
+        self.writer_factory = writer_factory
+
+    def matches(self, path):
+        """Return True if the path ends with one of this handler's extensions.
+
+        Longest extensions are checked first so that compound extensions
+        like ``.mae.gz`` match before ``.gz``.
+        """
+        lower = path.lower()
+        for ext in sorted(self.extensions, key=len, reverse=True):
+            if lower.endswith(ext):
+                return True
+        return False
+
+    def to_format_info(self):
+        """Return a FormatInfo-compatible object for this handler."""
+        return _PyFormatInfo(
+            name=self.name,
+            extensions=self.extensions,
+            description=self.description,
+            supports_read=self.reader_factory is not None,
+            supports_write=self.writer_factory is not None,
+            supports_threaded_read=False,
+            supports_threaded_write=False,
+        )
+
+
+class _PyFormatInfo:
+    """Pure-Python FormatInfo compatible with the SWIG FormatInfo struct."""
+
+    def __init__(self, name, extensions, description,
+                 supports_read, supports_write,
+                 supports_threaded_read, supports_threaded_write):
+        self.name = name
+        self.extensions = extensions
+        self.description = description
+        self.supports_read = supports_read
+        self.supports_write = supports_write
+        self.supports_threaded_read = supports_threaded_read
+        self.supports_threaded_write = supports_threaded_write
+
+    def __repr__(self):
+        return (f"FormatInfo(name={self.name!r}, "
+                f"extensions={self.extensions!r})")
+
+
+class _PluginRegistry:
+    """Python-level format handler registry for cross-package plugins."""
+
+    def __init__(self):
+        self._handlers = []
+
+    def register(self, handler):
+        """Register a _PluginHandler."""
+        self._handlers.append(handler)
+
+    def lookup(self, path):
+        """Find a handler matching the given path, or None."""
+        for h in self._handlers:
+            if h.matches(path):
+                return h
+        return None
+
+    def formats(self):
+        """Return FormatInfo objects for all registered Python handlers."""
+        return [h.to_format_info() for h in self._handlers]
+
+
+_plugin_registry = _PluginRegistry()
+
+
+def register_handler(name, extensions, description="",
+                     reader_factory=None, writer_factory=None):
+    """Register a Python-level format handler with oeio.
+
+    This is used by external plugins (e.g. oemaestro) to register their
+    format handlers so that ``oeio.read()`` and ``oeio.write()`` can
+    dispatch to them.
+
+    :param name: Human-readable format name (e.g. "Maestro").
+    :param extensions: List of file extensions (e.g. [".mae", ".mae.gz"]).
+    :param description: Short description of the format.
+    :param reader_factory: Callable(path) -> iterable of OEGraphMol, or None.
+    :param writer_factory: Callable(path) -> context manager with add(mol), or None.
+    """
+    _plugin_registry.register(_PluginHandler(
+        name=name,
+        extensions=extensions,
+        description=description,
+        reader_factory=reader_factory,
+        writer_factory=writer_factory,
+    ))
+
+
+def read(path, config=None):
+    """Open a molecule reader for ``path``.
+
+    Checks Python-registered plugin handlers first, then falls back to the
+    C++ FormatRegistry.
+
+    :param path: Path to a molecular file.
+    :param config: Optional handler-specific configuration.
+    :returns: A :class:`Reader` or plugin-specific iterable.
+    """
+    path = str(path)
+    handler = _plugin_registry.lookup(path)
+    if handler and handler.reader_factory:
+        return handler.reader_factory(path)
+    return _cpp_read(path, config)
+
+
+def write(path, config=None):
+    """Open a molecule writer for ``path``.
+
+    Checks Python-registered plugin handlers first, then falls back to the
+    C++ FormatRegistry.
+
+    :param path: Path to write to.
+    :param config: Optional handler-specific configuration.
+    :returns: A context manager with an ``add(mol)`` method.
+    """
+    path = str(path)
+    handler = _plugin_registry.lookup(path)
+    if handler and handler.writer_factory:
+        return handler.writer_factory(path)
+    return _cpp_write(path, config)
+
+
+def formats():
+    """List all registered molecular file formats.
+
+    Includes both C++ and Python-registered format handlers.
+
+    :returns: List of FormatInfo objects.
+    """
+    cpp_fmts = _cpp_formats()
+    py_fmts = _plugin_registry.formats()
+    return cpp_fmts + py_fmts
+
+
+_load_plugins()
+
 __all__ = [
     "__version__",
     "__version_info__",
@@ -241,7 +435,11 @@ __all__ = [
     "formats",
     "filter",
     "transform",
+    "register_handler",
     "Reader",
+    "Error",
+    "FormatError",
+    "FileError",
     "FormatInfo",
     "ReaderConfig",
     "WriterConfig",
