@@ -360,9 +360,45 @@ OE_CROSS_RUNTIME_REF_TYPEMAPS(OEDocking::OEReceptor, _oeio_is_oereceptor, "Expec
 // ============================================================================
 // Exception handling
 // ============================================================================
+// Python exception objects populated at module-load time via %init below.
+// The %exception block raises the most-specific Python subclass that matches
+// the C++ type, falling back to RuntimeError for foreign std::exceptions.
+%{
+static PyObject* _oeio_py_Error        = nullptr;
+static PyObject* _oeio_py_FormatError  = nullptr;
+static PyObject* _oeio_py_FileError    = nullptr;
+
+/// Install the Python exception classes so %exception can raise them.
+/// Called once from %pythoncode at module-import time.
+static void _oeio_set_exception_types(PyObject* err,
+                                      PyObject* fmt_err,
+                                      PyObject* file_err) {
+    Py_XINCREF(err);      _oeio_py_Error       = err;
+    Py_XINCREF(fmt_err);  _oeio_py_FormatError = fmt_err;
+    Py_XINCREF(file_err); _oeio_py_FileError   = file_err;
+}
+%}
+
+%inline %{
+void _install_exception_types(PyObject* err,
+                              PyObject* fmt_err,
+                              PyObject* file_err) {
+    _oeio_set_exception_types(err, fmt_err, file_err);
+}
+%}
+
 %exception {
     try {
         $action
+    } catch (const oeio::FormatError& e) {
+        PyErr_SetString(_oeio_py_FormatError, e.what());
+        SWIG_fail;
+    } catch (const oeio::FileError& e) {
+        PyErr_SetString(_oeio_py_FileError, e.what());
+        SWIG_fail;
+    } catch (const oeio::Error& e) {
+        PyErr_SetString(_oeio_py_Error, e.what());
+        SWIG_fail;
     } catch (const std::exception& e) {
         SWIG_exception(SWIG_RuntimeError, e.what());
     } catch (...) {
@@ -379,7 +415,7 @@ OE_CROSS_RUNTIME_REF_TYPEMAPS(OEDocking::OEReceptor, _oeio_is_oereceptor, "Expec
 // Version macros
 // ============================================================================
 #define OEIO_VERSION_MAJOR 0
-#define OEIO_VERSION_MINOR 1
+#define OEIO_VERSION_MINOR 2
 #define OEIO_VERSION_PATCH 0
 
 // ============================================================================
@@ -543,15 +579,13 @@ private:
 _ReaderHandle* _open_reader(const std::string& path) {
     auto* handler = FormatRegistry::instance().lookup(path);
     if (!handler) {
-        OESystem::OEThrow.Fatal(
-            "oeio: unrecognized file extension for '%s'", path.c_str());
-        return nullptr;
+        throw FormatError(
+            "oeio: unrecognized file extension for '" + path + "'");
     }
     auto source = handler->make_reader(path, std::any{});
     if (!source) {
-        OESystem::OEThrow.Fatal(
-            "oeio: failed to create reader for '%s'", path.c_str());
-        return nullptr;
+        throw FileError(
+            "oeio: failed to create reader for '" + path + "'");
     }
     return new _ReaderHandle(std::move(source));
 }
@@ -560,15 +594,13 @@ _ReaderHandle* _open_reader(const std::string& path) {
 _WriterHandle* _open_writer(const std::string& path) {
     auto* handler = FormatRegistry::instance().lookup(path);
     if (!handler) {
-        OESystem::OEThrow.Fatal(
-            "oeio: unrecognized file extension for '%s'", path.c_str());
-        return nullptr;
+        throw FormatError(
+            "oeio: unrecognized file extension for '" + path + "'");
     }
     auto sink = handler->make_writer(path, std::any{});
     if (!sink) {
-        OESystem::OEThrow.Fatal(
-            "oeio: failed to create writer for '%s'", path.c_str());
-        return nullptr;
+        throw FileError(
+            "oeio: failed to create writer for '" + path + "'");
     }
     return new _WriterHandle(std::move(sink));
 }
@@ -594,6 +626,18 @@ _WriterHandle* _open_writer(const std::string& path) {
 // Module-level Python convenience API
 // ============================================================================
 %pythoncode %{
+class Error(RuntimeError):
+    """Base class for all oeio exceptions."""
+
+
+class FormatError(Error):
+    """Raised when a file extension or format hint is not registered."""
+
+
+class FileError(Error):
+    """Raised when a file cannot be opened or a reader/writer cannot be created."""
+
+
 class Reader:
     """Iterable, closeable molecule reader.
 
@@ -718,4 +762,6 @@ def formats():
 
 
 __version__ = "0.1.0"
+
+_install_exception_types(Error, FormatError, FileError)
 %}

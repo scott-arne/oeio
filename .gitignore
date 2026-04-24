@@ -39,3 +39,7 @@ CMakeUserPresets.json
 # Claude
 docs/superpowers
 docs/plans
+
+# Jupyter
+.ipynb_checkpoints/
+.virtual_documents/

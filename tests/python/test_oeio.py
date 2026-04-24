@@ -179,14 +179,14 @@ class TestVersion:
         import oeio
 
         assert hasattr(oeio, "__version__")
-        assert oeio.__version__ == "0.1.0"
+        assert oeio.__version__ == "0.2.0"
 
     def test_version_info(self):
         """__version_info__ is a tuple of integers."""
         import oeio
 
         assert hasattr(oeio, "__version_info__")
-        assert oeio.__version_info__ == (0, 1, 0)
+        assert oeio.__version_info__ == (0, 2, 0)
 
 
 class TestReaderContextManager:
@@ -247,3 +247,44 @@ class TestReaderContextManager:
             assert isinstance(reader, oeio.Reader)
         finally:
             reader.close()
+
+
+class TestExceptions:
+    """Test oeio exception hierarchy."""
+
+    def test_exception_hierarchy(self):
+        """FormatError and FileError subclass Error, which subclasses RuntimeError."""
+        import oeio
+
+        assert issubclass(oeio.Error, RuntimeError)
+        assert issubclass(oeio.FormatError, oeio.Error)
+        assert issubclass(oeio.FileError, oeio.Error)
+
+    def test_unknown_extension_raises_format_error(self, tmp_path):
+        """Unknown file extensions raise FormatError."""
+        import oeio
+
+        with pytest.raises(oeio.FormatError, match="unrecognized file extension"):
+            oeio.write(str(tmp_path / "bad.xyzzy"))
+
+    def test_format_error_on_read_with_bad_extension(self, tmp_path):
+        """Reading a path with unknown extension raises FormatError."""
+        import oeio
+
+        with pytest.raises(oeio.FormatError):
+            list(oeio.read(str(tmp_path / "bad.xyzzy")))
+
+    def test_missing_file_raises_file_error(self, tmp_path):
+        """Reading a nonexistent file raises FileError."""
+        import oeio
+
+        missing = tmp_path / "nonexistent.sdf"
+        with pytest.raises(oeio.FileError, match="unable to open"):
+            list(oeio.read(str(missing)))
+
+    def test_format_error_is_runtime_error(self, tmp_path):
+        """FormatError is catchable as RuntimeError (backwards-compat)."""
+        import oeio
+
+        with pytest.raises(RuntimeError):
+            oeio.write(str(tmp_path / "bad.xyzzy"))

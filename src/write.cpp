@@ -2,9 +2,8 @@
 /// \brief Implementation of Writer class and Tier 1 write() overloads.
 
 #include "oeio/write.h"
+#include "oeio/exceptions.h"
 #include "oeio/format_registry.h"
-
-#include <oesystem.h>
 
 namespace oeio {
 
@@ -40,13 +39,13 @@ void Writer::close() {
 Writer write(const std::string& path) {
     auto* handler = FormatRegistry::instance().lookup(path);
     if (!handler) {
-        OESystem::OEThrow.Fatal(
-            "oeio: unrecognized file extension for '%s'", path.c_str());
+        throw FormatError(
+            "oeio: unrecognized file extension for '" + path + "'");
     }
     auto sink = handler->make_writer(path, std::any{});
     if (!sink) {
-        OESystem::OEThrow.Fatal(
-            "oeio: failed to create writer for '%s'", path.c_str());
+        throw FileError(
+            "oeio: failed to create writer for '" + path + "'");
     }
     return Writer(std::move(sink));
 }
@@ -54,13 +53,13 @@ Writer write(const std::string& path) {
 Writer write(const std::string& path, std::any config) {
     auto* handler = FormatRegistry::instance().lookup(path);
     if (!handler) {
-        OESystem::OEThrow.Fatal(
-            "oeio: unrecognized file extension for '%s'", path.c_str());
+        throw FormatError(
+            "oeio: unrecognized file extension for '" + path + "'");
     }
     auto sink = handler->make_writer(path, config);
     if (!sink) {
-        OESystem::OEThrow.Fatal(
-            "oeio: failed to create writer for '%s'", path.c_str());
+        throw FileError(
+            "oeio: failed to create writer for '" + path + "'");
     }
     return Writer(std::move(sink));
 }

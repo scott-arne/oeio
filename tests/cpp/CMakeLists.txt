@@ -14,6 +14,7 @@ add_executable(oeio_tests
     test_oechem_handler.cpp
     test_mol_range.cpp
     test_pipeline.cpp
+    test_exceptions.cpp
 )
 
 target_link_libraries(oeio_tests

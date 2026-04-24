@@ -11,17 +11,17 @@ Both C++ and Python interfaces are provided (via SWIG)
 
 The built-in OEChem handler supports all OEChem-native formats:
 
-| Format | Extensions |
-|--------|------------|
-| SDF | `.sdf`, `.sdf.gz` |
-| MOL | `.mol` |
-| MOL2 | `.mol2`, `.mol2.gz` |
-| PDB | `.pdb`, `.pdb.gz`, `.ent`, `.ent.gz` |
-| OEB | `.oeb`, `.oeb.gz`, `.oez` |
-| SMILES | `.smi`, `.smi.gz`, `.ism`, `.can` |
-| CSV | `.csv`, `.csv.gz` |
-| XYZ | `.xyz`, `.xyz.gz` |
-| Other | `.fasta`, `.cif`, `.mmcif`, `.mopac`, `.cdx` |
+| Format | Extensions                                   |
+|--------|----------------------------------------------|
+| SDF    | `.sdf`, `.sdf.gz`                            |
+| MOL    | `.mol`                                       |
+| MOL2   | `.mol2`, `.mol2.gz`                          |
+| PDB    | `.pdb`, `.pdb.gz`, `.ent`, `.ent.gz`         |
+| OEB    | `.oeb`, `.oeb.gz`, `.oez`                    |
+| SMILES | `.smi`, `.smi.gz`, `.ism`, `.can`            |
+| CSV    | `.csv`, `.csv.gz`                            |
+| XYZ    | `.xyz`, `.xyz.gz`                            |
+| Other  | `.fasta`, `.cif`, `.mmcif`, `.mopac`, `.cdx` |
 
 Additional formats can be added through the plugin system (see
 [Registering Format Plugins](#registering-format-plugins)).
