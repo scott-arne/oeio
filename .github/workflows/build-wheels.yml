@@ -171,7 +171,7 @@ jobs:
         with:
           name: wheel-linux-${{ matrix.arch }}
           path: dist/*.whl
-          retention-days: 30
+          retention-days: 2
   build-macos:
 
     permissions:
@@ -274,7 +274,7 @@ jobs:
         with:
           name: wheel-macos-universal2
           path: dist/*.whl
-          retention-days: 30
+          retention-days: 2
   build-windows:
 
     permissions:
@@ -389,7 +389,7 @@ jobs:
         with:
           name: wheel-windows-x64
           path: dist/*.whl
-          retention-days: 30
+          retention-days: 2
   # Collect all wheels into a single artifact
   collect-wheels:
 
@@ -412,7 +412,7 @@ jobs:
         with:
           name: all-wheels
           path: wheels/*.whl
-          retention-days: 30
+          retention-days: 2
   # Publish to PyPI on release tags
   publish:
 
