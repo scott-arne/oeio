@@ -175,18 +175,21 @@ class TestVersion:
     """Test version information."""
 
     def test_version_string(self):
-        """__version__ is accessible and well-formed."""
+        """__version__ is accessible and well-formed (X.Y.Z)."""
+        import re
         import oeio
 
         assert hasattr(oeio, "__version__")
-        assert oeio.__version__ == "0.2.0"
+        assert re.fullmatch(r"\d+\.\d+\.\d+", oeio.__version__)
 
     def test_version_info(self):
-        """__version_info__ is a tuple of integers."""
+        """__version_info__ is a 3-tuple of integers matching __version__."""
         import oeio
 
         assert hasattr(oeio, "__version_info__")
-        assert oeio.__version_info__ == (0, 2, 0)
+        assert len(oeio.__version_info__) == 3
+        assert all(isinstance(x, int) for x in oeio.__version_info__)
+        assert ".".join(str(x) for x in oeio.__version_info__) == oeio.__version__
 
 
 class TestReaderContextManager:
