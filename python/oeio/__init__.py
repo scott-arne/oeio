@@ -6,8 +6,8 @@ import os
 import re
 import warnings
 
-__version__ = "0.2.1"
-__version_info__ = (0, 2, 1)
+__version__ = "0.2.2"
+__version_info__ = (0, 2, 2)
 
 
 def _ensure_library_compat():
