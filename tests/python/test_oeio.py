@@ -184,14 +184,14 @@ class TestVersion:
         import oeio
 
         assert hasattr(oeio, "__version__")
-        assert oeio.__version__ == "0.2.2"
+        assert oeio.__version__ == "0.2.3"
 
     def test_version_info(self):
         """__version_info__ matches __version__."""
         import oeio
 
         assert hasattr(oeio, "__version_info__")
-        assert oeio.__version_info__ == (0, 2, 2)
+        assert oeio.__version_info__ == (0, 2, 3)
 
 
 class TestReaderContextManager:
