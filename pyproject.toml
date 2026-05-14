@@ -4,7 +4,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "oeio"
-version = "0.2.3"
+version = "0.2.4"
 description = "Modular package for deploying new readers and writers for the OpenEye Toolkits"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -78,3 +78,6 @@ expected-missing-libs = [
 
 # Additional CMake defines passed during wheel build (beyond the standard ones)
 [tool.oe-build.extra-cmake-defines]
+
+[tool.ruff.lint.per-file-ignores]
+"python/oeio/__init__.py" = ["E402", "F401"]
