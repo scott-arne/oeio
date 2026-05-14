@@ -416,7 +416,7 @@ void _install_exception_types(PyObject* err,
 // ============================================================================
 #define OEIO_VERSION_MAJOR 0
 #define OEIO_VERSION_MINOR 2
-#define OEIO_VERSION_PATCH 4
+#define OEIO_VERSION_PATCH 5
 
 // ============================================================================
 // Header includes for SWIG compilation
