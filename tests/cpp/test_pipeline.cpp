@@ -222,5 +222,31 @@ TEST_F(PipelineTest, TransformPreservesConformers) {
     EXPECT_EQ((*it).NumConfs(), 2u);
 }
 
+TEST_F(PipelineTest, PipeMultiConformerPreservesConformersOnDisk) {
+    std::string in_path = (tmpdir_ / "mc_src.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> c(mc.NumAtoms() * 3);
+        mc.GetCoords(c.data());
+        mc.NewConf(c.data());  // 3 confs total
+        mc.NewConf(c.data());
+        ASSERT_EQ(mc.NumConfs(), 3u);
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(in_path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+    std::string out_path = (tmpdir_ / "mc_out.oeb").string();
+    oeio::read(in_path) | oeio::write(out_path);
+
+    // Read the written file back and confirm conformers survived on disk.
+    auto range = oeio::read(out_path);
+    auto it = range.begin();
+    ASSERT_NE(it, range.end());
+    EXPECT_EQ((*it).NumConfs(), 3u);
+}
+
 }  // namespace test
 }  // namespace oeio

@@ -98,6 +98,29 @@ class TestWrite:
         titles = [mol.GetTitle() for mol in oeio.read(out_path)]
         assert titles == ["ethanol", "benzene"]
 
+    def test_write_preserves_conformers_on_disk(self, multiconf_oeb, tmp_path):
+        """read(OEMol) -> write -> read-back preserves multi-conformer records on disk."""
+        import oeio
+
+        out_path = str(tmp_path / "mc_out.oeb")
+        with oeio.write(out_path) as writer:
+            for mol in oeio.read(multiconf_oeb):
+                writer.append(mol)
+        back = list(oeio.read(out_path))
+        assert len(back) == 1
+        assert back[0].NumConfs() == 3
+
+    def test_read_write_composed_roundtrip(self, sdf_file, tmp_path):
+        """read -> append -> read-back round-trips molecule titles."""
+        import oeio
+
+        out_path = str(tmp_path / "composed.sdf")
+        with oeio.write(out_path) as writer:
+            for mol in oeio.read(sdf_file):
+                writer.append(mol)
+        titles = [m.GetTitle() for m in oeio.read(out_path)]
+        assert titles == ["ethanol", "benzene"]
+
 
 class TestFilter:
     """Test oeio.filter() molecule filtering."""
@@ -283,6 +306,18 @@ class TestReaderContextManager:
             assert isinstance(reader, oeio.Reader)
         finally:
             reader.close()
+
+    def test_iter_close_mid_iteration_raises(self, sdf_file):
+        """Closing reader mid-iteration raises ValueError on next access."""
+        import pytest
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        gen = iter(reader)
+        next(gen)          # consume one
+        reader.close()
+        with pytest.raises(ValueError):
+            next(gen)
 
 
 class TestReadInto:

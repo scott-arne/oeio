@@ -87,9 +87,20 @@ public:
     }
 
     bool write(const OEChem::OEMolBase& mol) override {
-        // OEWriteMolecule takes a non-const reference; the OEChem API does not
-        // modify the molecule but the signature is historical.  The const_cast
-        // is safe here.
+        // OEWriteMolecule overloads resolve by static type; the OEMolBase&
+        // overload flattens conformers. Dispatch on the dynamic type so an
+        // OEMol (OEMCMolBase) with multiple conformers writes all conformers.
+        // Single-conformer OEMol uses the base overload to preserve legacy
+        // behavior (avoids conformer-vs-molecule SD data split issues).
+        // const_cast is safe (OEChem API does not modify, signature is historical).
+        if (auto* mc = dynamic_cast<const OEChem::OEMCMolBase*>(&mol)) {
+            if (mc->NumConfs() > 1) {
+                return OEChem::OEWriteMolecule(ofs_, const_cast<OEChem::OEMCMolBase&>(*mc)) != 0;
+            }
+        }
+        if (auto* q = dynamic_cast<const OEChem::OEQMolBase*>(&mol)) {
+            return OEChem::OEWriteMolecule(ofs_, const_cast<OEChem::OEQMolBase&>(*q)) != 0;
+        }
         auto& mutable_mol = const_cast<OEChem::OEMolBase&>(mol);
         return OEChem::OEWriteMolecule(ofs_, mutable_mol) != 0;
     }

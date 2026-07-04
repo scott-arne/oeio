@@ -662,7 +662,11 @@ class Reader:
         if self._closed:
             raise ValueError("I/O operation on closed reader")
         mol = oechem.OEMol()
-        while self._handle.next(mol):
+        while True:
+            if self._closed:
+                raise ValueError("I/O operation on closed reader")
+            if not self._handle.next(mol):
+                break
             yield mol
             mol = oechem.OEMol()
 
@@ -779,7 +783,7 @@ def transform(iterable, func):
     """Transform molecules from an iterable in-place.
 
     :param iterable: An iterable of molecules (e.g., from read()).
-    :param func: Function that takes an OEGraphMol and modifies it in-place.
+    :param func: Function that takes a molecule (OEMolBase) and modifies it in-place.
     :returns: Generator yielding transformed molecules.
 
     Example::
@@ -800,7 +804,7 @@ def formats():
     return list(FormatRegistry.instance().formats())
 
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 _install_exception_types(Error, FormatError, FileError)
 %}
