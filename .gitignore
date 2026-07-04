@@ -42,8 +42,13 @@ CMakeUserPresets.json
 
 # Claude
 docs/superpowers
+docs/hyperpowers
 docs/plans
 
 # Jupyter
 .ipynb_checkpoints/
 .virtual_documents/
+
+# Example notebook outputs (generated when running examples/01-Introduction.ipynb)
+examples/output.sdf
+examples/heavy_prepared.sdf
