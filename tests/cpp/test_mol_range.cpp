@@ -129,7 +129,7 @@ TEST_F(MolRangeTest, DefaultIterationYieldsOEMol) {
     auto range = oeio::read(path);
     auto it = range.begin();
     ASSERT_NE(it, range.end());
-    // value_type must be OEMol now, so this reference binds without a cast.
+    // Compile-time proof: operator*() returns OEMol&, not OEGraphMol&
     OEChem::OEMol& mol = *it;
     EXPECT_GT(mol.NumAtoms(), 0u);
 }
@@ -143,6 +143,7 @@ TEST_F(MolRangeTest, DefaultIterationPreservesConformers) {
         std::vector<float> c(mc.NumAtoms() * 3);
         mc.GetCoords(c.data());
         mc.NewConf(c.data());  // 2 confs total
+        ASSERT_EQ(mc.NumConfs(), 2u);  // confirm multi-conformer write before testing read
         OEChem::oemolostream ofs;
         ASSERT_TRUE(ofs.open(path));
         OEChem::OEWriteMolecule(ofs, mc);
@@ -151,7 +152,7 @@ TEST_F(MolRangeTest, DefaultIterationPreservesConformers) {
     auto range = oeio::read(path);
     auto it = range.begin();
     ASSERT_NE(it, range.end());
-    EXPECT_EQ((*it).NumConfs(), 2u);
+    EXPECT_EQ(it->NumConfs(), 2u);
 }
 
 }  // namespace test
