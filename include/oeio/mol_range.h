@@ -74,6 +74,16 @@ public:
     /// \returns Sentinel value for end-of-range comparison.
     Sentinel end() const;
 
+    /// \brief Read the next molecule into a caller-owned molecule (zero-copy).
+    ///
+    /// Forwards the caller's reference to the underlying source, so the
+    /// dynamic type selects the correct read behavior (an OEMol reads
+    /// multi-conformer, an OEGraphMol single-conformer).
+    ///
+    /// \param mol The molecule to populate.
+    /// \returns true if a molecule was read, false if the source is exhausted or null.
+    bool read_into(OEChem::OEMolBase& mol);
+
 private:
     std::unique_ptr<MolSource> release_source();
 

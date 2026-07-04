@@ -23,6 +23,10 @@ MolRange::Sentinel MolRange::end() const {
     return Sentinel{};
 }
 
+bool MolRange::read_into(OEChem::OEMolBase& mol) {
+    return source_ && source_->next(mol);
+}
+
 std::unique_ptr<MolSource> MolRange::release_source() {
     return std::move(source_);
 }

@@ -155,5 +155,40 @@ TEST_F(MolRangeTest, DefaultIterationPreservesConformers) {
     EXPECT_EQ(it->NumConfs(), 2u);
 }
 
+TEST_F(MolRangeTest, ReadIntoStreamsIntoCallerMolecule) {
+    std::string path = write_temp_file(3);
+    auto range = oeio::read(path);
+
+    OEChem::OEMol mol;
+    int count = 0;
+    while (range.read_into(mol)) {
+        EXPECT_GT(mol.NumAtoms(), 0u);
+        ++count;
+    }
+    EXPECT_EQ(count, 3);
+    // Exhausted range returns false again.
+    EXPECT_FALSE(range.read_into(mol));
+}
+
+TEST_F(MolRangeTest, ReadIntoOEMolPreservesConformers) {
+    std::string path = (tmpdir_ / "mc.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> c(mc.NumAtoms() * 3);
+        mc.GetCoords(c.data());
+        mc.NewConf(c.data());  // 2 confs
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+    auto range = oeio::read(path);
+    OEChem::OEMol mol;
+    ASSERT_TRUE(range.read_into(mol));
+    EXPECT_EQ(mol.NumConfs(), 2u);
+}
+
 }  // namespace test
 }  // namespace oeio
