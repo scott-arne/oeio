@@ -3,8 +3,6 @@
 import warnings
 from unittest.mock import patch, MagicMock
 
-import pytest
-
 
 class TestLoadPlugins:
     """Test _load_plugins() entry-point discovery."""
