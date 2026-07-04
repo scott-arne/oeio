@@ -770,11 +770,9 @@ def filter(iterable, predicate):
         heavy = oeio.filter(oeio.read("in.sdf"),
             lambda mol: mol.NumAtoms() > 10)
     """
-    from openeye import oechem
-
     for mol in iterable:
         if predicate(mol):
-            yield oechem.OEGraphMol(mol)
+            yield type(mol)(mol)
 
 
 def transform(iterable, func):
@@ -789,11 +787,9 @@ def transform(iterable, func):
         prepared = oeio.transform(oeio.read("in.sdf"),
             lambda mol: oechem.OEAddExplicitHydrogens(mol))
     """
-    from openeye import oechem
-
     for mol in iterable:
         func(mol)
-        yield oechem.OEGraphMol(mol)
+        yield type(mol)(mol)
 
 
 def formats():

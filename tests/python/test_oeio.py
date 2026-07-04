@@ -150,6 +150,42 @@ class TestTransform:
         assert len(result) == 3
 
 
+class TestHelperTypePreservation:
+    """filter/transform preserve the input molecule type."""
+
+    def test_filter_preserves_oemol_type(self, sdf_file):
+        import oeio
+
+        result = list(oeio.filter(oeio.read(sdf_file),
+                                  lambda m: m.NumAtoms() > 1))
+        assert all(isinstance(m, oechem.OEMol) for m in result)
+
+    def test_transform_preserves_oemol_type(self, sdf_file):
+        import oeio
+
+        result = list(oeio.transform(oeio.read(sdf_file),
+                                     lambda m: m.SetTitle("t")))
+        assert all(isinstance(m, oechem.OEMol) for m in result)
+
+    def test_filter_preserves_conformers(self, multiconf_oeb):
+        """filter over a multi-conformer stream retains all conformers."""
+        import oeio
+
+        result = list(oeio.filter(oeio.read(multiconf_oeb), lambda _: True))
+        assert len(result) == 1
+        assert isinstance(result[0], oechem.OEMol)
+        assert result[0].NumConfs() == 3
+
+    def test_transform_preserves_conformers(self, multiconf_oeb):
+        """no-op transform over a multi-conformer stream retains all conformers."""
+        import oeio
+
+        result = list(oeio.transform(oeio.read(multiconf_oeb), lambda _: None))
+        assert len(result) == 1
+        assert isinstance(result[0], oechem.OEMol)
+        assert result[0].NumConfs() == 3
+
+
 class TestFormats:
     """Test oeio.formats() format listing."""
 
