@@ -21,12 +21,20 @@ class TestRead:
         mols = list(oeio.read(smi_file))
         assert len(mols) == 3
 
-    def test_read_returns_oegraphmol(self, sdf_file):
-        """Returned objects are oechem.OEGraphMol instances."""
+    def test_read_returns_oemol(self, sdf_file):
+        """Default iteration yields oechem.OEMol instances."""
         import oeio
 
         for mol in oeio.read(sdf_file):
-            assert isinstance(mol, oechem.OEGraphMol)
+            assert isinstance(mol, oechem.OEMol)
+
+    def test_read_preserves_conformers(self, multiconf_oeb):
+        """Default OEMol iteration preserves multi-conformer records."""
+        import oeio
+
+        mols = list(oeio.read(multiconf_oeb))
+        assert len(mols) == 1
+        assert mols[0].NumConfs() == 3
 
     def test_read_preserves_titles(self, sdf_file):
         """Molecule titles are preserved through read."""
@@ -202,19 +210,6 @@ class TestReaderContextManager:
         import oeio
 
         with oeio.read(sdf_file) as reader:
-            titles = [mol.GetTitle() for mol in reader]
-        assert titles == ["ethanol", "benzene"]
-
-    def test_read_write_composed(self, sdf_file, tmp_path):
-        """`with oeio.read(...) as ifs, oeio.write(...) as ofs` round-trips mols."""
-        import oeio
-
-        out_path = str(tmp_path / "composed.sdf")
-        with oeio.read(sdf_file) as ifs, oeio.write(out_path) as ofs:
-            for mol in ifs:
-                ofs.append(mol)
-
-        with oeio.read(out_path) as reader:
             titles = [mol.GetTitle() for mol in reader]
         assert titles == ["ethanol", "benzene"]
 

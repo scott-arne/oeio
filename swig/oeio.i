@@ -661,10 +661,10 @@ class Reader:
 
         if self._closed:
             raise ValueError("I/O operation on closed reader")
-        mol = oechem.OEGraphMol()
+        mol = oechem.OEMol()
         while self._handle.next(mol):
             yield mol
-            mol = oechem.OEGraphMol()
+            mol = oechem.OEMol()
 
     def __enter__(self):
         return self
