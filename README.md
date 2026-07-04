@@ -60,15 +60,50 @@ pip install --config-settings editable_mode=compat -e python/
 
 ## Usage
 
+### Molecule Types
+
+`oeio` reads into `OEMol` (multi-conformer) **by default**, in both C++ and
+Python, matching OpenEye Orion's default molecule type. You select a different
+type either by which iterator view you take or by the object you hand to
+`read_into` — the type is never a separate argument:
+
+| Mode | C++ | Python |
+|------|-----|--------|
+| Default (`OEMol`) | `for (auto& m : oeio::read(path))` | `for m in oeio.read(path)` |
+| Typed view | `oeio::read(path).as<OEChem::OEGraphMol>()` | `reader.as_type(oechem.OEGraphMol)` |
+| Zero-copy by-reference | `range.read_into(mol)` | `reader.read_into(mol)` |
+
+`.as<T>()` / `.as_type(cls)` accept any OpenEye molecule type — `OEMol`,
+`OEGraphMol`, `OEQMol`. With `read_into`, the caller-owned object *is* the type,
+and its buffer is reused across the whole read (no per-molecule allocation).
+
+> **Upgrading from 0.2.x?** The default read type changed from `OEGraphMol` to
+> `OEMol` in 0.3.0 — a breaking change. See [CHANGELOG.md](CHANGELOG.md) for the
+> migration path (`.as_type(oechem.OEGraphMol)` / `.as<OEChem::OEGraphMol>()`
+> restores the previous single-conformer behavior).
+
 ### Python
 
 **Reading molecules:**
 
 ```python
 import oeio
+from openeye import oechem
 
-for mol in oeio.read("molecules.sdf"):
-    print(mol.GetTitle(), mol.NumAtoms())
+# Default: multi-conformer OEMol (aligns with Orion's default molecule type)
+for mol in oeio.read("molecules.oeb"):
+    print(mol.GetTitle(), mol.NumConfs())
+
+# Choose a different type for iteration
+with oeio.read("ligands.sdf") as reader:
+    for mol in reader.as_type(oechem.OEGraphMol):
+        print(mol.GetTitle(), mol.NumAtoms())
+
+# Zero-copy by-reference read for large files (reuses one buffer)
+mol = oechem.OEMol()
+with oeio.read("big.oeb") as reader:
+    while reader.read_into(mol):
+        print(mol.GetTitle())
 ```
 
 **Writing molecules:**
@@ -127,7 +162,20 @@ Include the umbrella header:
 **Reading molecules:**
 
 ```cpp
-for (auto& mol : oeio::read("molecules.sdf")) {
+// Default: multi-conformer OEMol
+for (auto& mol : oeio::read("molecules.oeb")) {
+    std::cout << mol.GetTitle() << " " << mol.NumConfs() << "\n";
+}
+
+// Choose a different type for iteration
+for (auto& mol : oeio::read("ligands.sdf").as<OEChem::OEGraphMol>()) {
+    std::cout << mol.GetTitle() << "\n";
+}
+
+// Zero-copy by-reference read
+OEChem::OEMol mol;
+auto range = oeio::read("big.oeb");
+while (range.read_into(mol)) {
     std::cout << mol.GetTitle() << "\n";
 }
 ```
@@ -135,18 +183,20 @@ for (auto& mol : oeio::read("molecules.sdf")) {
 **Pipeline: filter, transform, write:**
 
 ```cpp
-oeio::read("input.sdf")
-    | oeio::filter([](const OEChem::OEMolBase& mol) {
+oeio::transform(
+    oeio::filter(oeio::read("input.sdf"), [](const OEChem::OEMolBase& mol) {
         return mol.NumAtoms() > 10;
-    })
-    | oeio::transform([](OEChem::OEGraphMol& mol) {
+    }),
+    [](OEChem::OEMolBase& mol) {
         OEChem::OEAddExplicitHydrogens(mol);
-    })
-    | oeio::write("output.sdf");
+    }
+) | oeio::write("output.sdf");
 ```
 
-The pipe operator (`|`) connects a `MolRange` to a `Writer`, streaming molecules
-without intermediate storage.
+`filter` and `transform` are functions that take a `MolRange` and return a new
+`MolRange`, so they compose by nesting. The pipe operator (`|`) then connects
+the resulting `MolRange` to a `Writer`, streaming molecules without
+intermediate storage.
 
 **Reading with configuration:**
 

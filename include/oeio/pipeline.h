@@ -54,6 +54,6 @@ OEIO_HOT MolRange filter(MolRange&& range, std::function<bool(const OEChem::OEMo
 /// \param range The input molecule range (rvalue).
 /// \param fn The transformation function (modifies the molecule in-place).
 /// \returns A new MolRange with transformed molecules.
-OEIO_HOT MolRange transform(MolRange&& range, std::function<void(OEChem::OEGraphMol&)> fn);
+OEIO_HOT MolRange transform(MolRange&& range, std::function<void(OEChem::OEMolBase&)> fn);
 
 }  // namespace oeio

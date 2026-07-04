@@ -21,12 +21,20 @@ class TestRead:
         mols = list(oeio.read(smi_file))
         assert len(mols) == 3
 
-    def test_read_returns_oegraphmol(self, sdf_file):
-        """Returned objects are oechem.OEGraphMol instances."""
+    def test_read_returns_oemol(self, sdf_file):
+        """Default iteration yields oechem.OEMol instances."""
         import oeio
 
         for mol in oeio.read(sdf_file):
-            assert isinstance(mol, oechem.OEGraphMol)
+            assert isinstance(mol, oechem.OEMol)
+
+    def test_read_preserves_conformers(self, multiconf_oeb):
+        """Default OEMol iteration preserves multi-conformer records."""
+        import oeio
+
+        mols = list(oeio.read(multiconf_oeb))
+        assert len(mols) == 1
+        assert mols[0].NumConfs() == 3
 
     def test_read_preserves_titles(self, sdf_file):
         """Molecule titles are preserved through read."""
@@ -90,6 +98,29 @@ class TestWrite:
         titles = [mol.GetTitle() for mol in oeio.read(out_path)]
         assert titles == ["ethanol", "benzene"]
 
+    def test_write_preserves_conformers_on_disk(self, multiconf_oeb, tmp_path):
+        """read(OEMol) -> write -> read-back preserves multi-conformer records on disk."""
+        import oeio
+
+        out_path = str(tmp_path / "mc_out.oeb")
+        with oeio.write(out_path) as writer:
+            for mol in oeio.read(multiconf_oeb):
+                writer.append(mol)
+        back = list(oeio.read(out_path))
+        assert len(back) == 1
+        assert back[0].NumConfs() == 3
+
+    def test_read_write_composed_roundtrip(self, sdf_file, tmp_path):
+        """read -> append -> read-back round-trips molecule titles."""
+        import oeio
+
+        out_path = str(tmp_path / "composed.sdf")
+        with oeio.write(out_path) as writer:
+            for mol in oeio.read(sdf_file):
+                writer.append(mol)
+        titles = [m.GetTitle() for m in oeio.read(out_path)]
+        assert titles == ["ethanol", "benzene"]
+
 
 class TestFilter:
     """Test oeio.filter() molecule filtering."""
@@ -142,6 +173,42 @@ class TestTransform:
         assert len(result) == 3
 
 
+class TestHelperTypePreservation:
+    """filter/transform preserve the input molecule type."""
+
+    def test_filter_preserves_oemol_type(self, sdf_file):
+        import oeio
+
+        result = list(oeio.filter(oeio.read(sdf_file),
+                                  lambda m: m.NumAtoms() > 1))
+        assert all(isinstance(m, oechem.OEMol) for m in result)
+
+    def test_transform_preserves_oemol_type(self, sdf_file):
+        import oeio
+
+        result = list(oeio.transform(oeio.read(sdf_file),
+                                     lambda m: m.SetTitle("t")))
+        assert all(isinstance(m, oechem.OEMol) for m in result)
+
+    def test_filter_preserves_conformers(self, multiconf_oeb):
+        """filter over a multi-conformer stream retains all conformers."""
+        import oeio
+
+        result = list(oeio.filter(oeio.read(multiconf_oeb), lambda _: True))
+        assert len(result) == 1
+        assert isinstance(result[0], oechem.OEMol)
+        assert result[0].NumConfs() == 3
+
+    def test_transform_preserves_conformers(self, multiconf_oeb):
+        """no-op transform over a multi-conformer stream retains all conformers."""
+        import oeio
+
+        result = list(oeio.transform(oeio.read(multiconf_oeb), lambda _: None))
+        assert len(result) == 1
+        assert isinstance(result[0], oechem.OEMol)
+        assert result[0].NumConfs() == 3
+
+
 class TestFormats:
     """Test oeio.formats() format listing."""
 
@@ -184,14 +251,14 @@ class TestVersion:
         import oeio
 
         assert hasattr(oeio, "__version__")
-        assert oeio.__version__ == "0.2.5"
+        assert oeio.__version__ == "0.3.0"
 
     def test_version_info(self):
         """__version_info__ matches __version__."""
         import oeio
 
         assert hasattr(oeio, "__version_info__")
-        assert oeio.__version_info__ == (0, 2, 5)
+        assert oeio.__version_info__ == (0, 3, 0)
 
 
 class TestReaderContextManager:
@@ -202,19 +269,6 @@ class TestReaderContextManager:
         import oeio
 
         with oeio.read(sdf_file) as reader:
-            titles = [mol.GetTitle() for mol in reader]
-        assert titles == ["ethanol", "benzene"]
-
-    def test_read_write_composed(self, sdf_file, tmp_path):
-        """`with oeio.read(...) as ifs, oeio.write(...) as ofs` round-trips mols."""
-        import oeio
-
-        out_path = str(tmp_path / "composed.sdf")
-        with oeio.read(sdf_file) as ifs, oeio.write(out_path) as ofs:
-            for mol in ifs:
-                ofs.append(mol)
-
-        with oeio.read(out_path) as reader:
             titles = [mol.GetTitle() for mol in reader]
         assert titles == ["ethanol", "benzene"]
 
@@ -252,6 +306,112 @@ class TestReaderContextManager:
             assert isinstance(reader, oeio.Reader)
         finally:
             reader.close()
+
+    def test_iter_close_mid_iteration_raises(self, sdf_file):
+        """Closing reader mid-iteration raises ValueError on next access."""
+        import pytest
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        gen = iter(reader)
+        next(gen)          # consume one
+        reader.close()
+        with pytest.raises(ValueError):
+            next(gen)
+
+
+class TestReadInto:
+    """Test Reader.read_into() zero-copy reads."""
+
+    def test_read_into_populates_caller_mol(self, sdf_file):
+        import oeio
+
+        mol = oechem.OEMol()
+        count = 0
+        with oeio.read(sdf_file) as reader:
+            while reader.read_into(mol):
+                assert mol.NumAtoms() > 0
+                count += 1
+        assert count == 2
+
+    def test_read_into_preserves_conformers(self, multiconf_oeb):
+        import oeio
+
+        mol = oechem.OEMol()
+        with oeio.read(multiconf_oeb) as reader:
+            assert reader.read_into(mol)
+            assert mol.NumConfs() == 3
+
+    def test_read_into_reuses_buffer(self, sdf_file):
+        """read_into does not allocate a new object per molecule."""
+        import oeio
+
+        mol = oechem.OEMol()
+        ids = set()
+        with oeio.read(sdf_file) as reader:
+            while reader.read_into(mol):
+                ids.add(id(mol))
+        assert len(ids) == 1  # same object reused
+
+    def test_read_into_closed_raises(self, sdf_file):
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        with pytest.raises(ValueError):
+            reader.read_into(oechem.OEMol())
+
+
+class TestAsType:
+    """Test Reader.as_type() typed iteration."""
+
+    def test_as_type_oegraphmol(self, sdf_file):
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            for mol in reader.as_type(oechem.OEGraphMol):
+                assert isinstance(mol, oechem.OEGraphMol)
+
+    def test_as_type_oemol_preserves_conformers(self, multiconf_oeb):
+        import oeio
+
+        with oeio.read(multiconf_oeb) as reader:
+            mols = list(reader.as_type(oechem.OEMol))
+        assert len(mols) == 1
+        assert mols[0].NumConfs() == 3
+
+    def test_as_type_oeqmol(self, sdf_file):
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            mols = list(reader.as_type(oechem.OEQMol))
+        assert len(mols) == 2
+        assert all(isinstance(m, oechem.OEQMol) for m in mols)
+
+    def test_as_type_rejects_non_molecule(self, sdf_file):
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            with pytest.raises(TypeError):
+                list(reader.as_type(int))
+
+    def test_as_type_closed_raises(self, sdf_file):
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        with pytest.raises(ValueError):
+            list(reader.as_type(oechem.OEGraphMol))
+
+    def test_as_type_close_mid_iteration_raises(self, sdf_file):
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        gen = reader.as_type(oechem.OEGraphMol)
+        next(gen)          # consume one molecule
+        reader.close()
+        with pytest.raises(ValueError):
+            next(gen)      # resuming after close must raise ValueError, not AttributeError
 
 
 class TestExceptions:

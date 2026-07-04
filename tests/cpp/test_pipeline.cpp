@@ -104,7 +104,7 @@ TEST_F(PipelineTest, TransformModifiesMolecules) {
     std::string out_path = (tmpdir_ / "transformed.sdf").string();
 
     // Transform that sets all titles to "modified"
-    oeio::transform(oeio::read(in_path), [](OEChem::OEGraphMol& mol) {
+    oeio::transform(oeio::read(in_path), [](OEChem::OEMolBase& mol) {
         mol.SetTitle("modified");
     }) | oeio::write(out_path);
 
@@ -130,7 +130,7 @@ TEST_F(PipelineTest, ChainedFilterTransformWrite) {
         oeio::filter(oeio::read(in_path), [](const OEChem::OEMolBase& mol) {
             return mol.NumAtoms() > 2;
         }),
-        [](OEChem::OEGraphMol& mol) {
+        [](OEChem::OEMolBase& mol) {
             std::string old_title = mol.GetTitle();
             mol.SetTitle("filtered_" + old_title);
         }
@@ -183,6 +183,69 @@ TEST_F(PipelineTest, ChainedFiltersCollapse) {
 
     // Should have 2 molecules: benzene (6) and acetic_acid (4)
     EXPECT_EQ(count_molecules(out_path), 2);
+}
+
+TEST_F(PipelineTest, TransformAcceptsOEMolBaseCallback) {
+    std::string in_path = write_test_molecules();
+    std::string out_path = (tmpdir_ / "xform.sdf").string();
+
+    // Callback now takes OEMolBase& (widened from OEGraphMol&).
+    oeio::transform(oeio::read(in_path), [](OEChem::OEMolBase& mol) {
+        mol.SetTitle("x_" + std::string(mol.GetTitle()));
+    }) | oeio::write(out_path);
+
+    auto range = oeio::read(out_path);
+    std::vector<std::string> titles;
+    for (auto& mol : range) titles.push_back(mol.GetTitle());
+    ASSERT_EQ(titles.size(), 4u);
+    EXPECT_EQ(titles[0].rfind("x_", 0), 0u);  // starts with "x_"
+}
+
+TEST_F(PipelineTest, TransformPreservesConformers) {
+    std::string in_path = (tmpdir_ / "mc.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> c(mc.NumAtoms() * 3);
+        mc.GetCoords(c.data());
+        mc.NewConf(c.data());  // 2 confs
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(in_path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+    auto range = oeio::transform(oeio::read(in_path),
+                                 [](OEChem::OEMolBase&) { /* no-op */ });
+    auto it = range.begin();
+    ASSERT_NE(it, range.end());
+    EXPECT_EQ((*it).NumConfs(), 2u);
+}
+
+TEST_F(PipelineTest, PipeMultiConformerPreservesConformersOnDisk) {
+    std::string in_path = (tmpdir_ / "mc_src.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> c(mc.NumAtoms() * 3);
+        mc.GetCoords(c.data());
+        mc.NewConf(c.data());  // 3 confs total
+        mc.NewConf(c.data());
+        ASSERT_EQ(mc.NumConfs(), 3u);
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(in_path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+    std::string out_path = (tmpdir_ / "mc_out.oeb").string();
+    oeio::read(in_path) | oeio::write(out_path);
+
+    // Read the written file back and confirm conformers survived on disk.
+    auto range = oeio::read(out_path);
+    auto it = range.begin();
+    ASSERT_NE(it, range.end());
+    EXPECT_EQ((*it).NumConfs(), 3u);
 }
 
 }  // namespace test

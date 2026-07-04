@@ -415,8 +415,8 @@ void _install_exception_types(PyObject* err,
 // Version macros
 // ============================================================================
 #define OEIO_VERSION_MAJOR 0
-#define OEIO_VERSION_MINOR 2
-#define OEIO_VERSION_PATCH 5
+#define OEIO_VERSION_MINOR 3
+#define OEIO_VERSION_PATCH 0
 
 // ============================================================================
 // Header includes for SWIG compilation
@@ -661,10 +661,57 @@ class Reader:
 
         if self._closed:
             raise ValueError("I/O operation on closed reader")
-        mol = oechem.OEGraphMol()
-        while self._handle.next(mol):
+        mol = oechem.OEMol()
+        while True:
+            if self._closed:
+                raise ValueError("I/O operation on closed reader")
+            if not self._handle.next(mol):
+                break
             yield mol
-            mol = oechem.OEGraphMol()
+            mol = oechem.OEMol()
+
+    def read_into(self, mol):
+        """Read the next molecule into a caller-owned molecule.
+
+        Reuses ``mol`` as the buffer (no new Python molecule allocated per
+        call). The molecule's type determines the read behavior (an ``OEMol``
+        reads multi-conformer, an ``OEGraphMol`` single-conformer). For the
+        built-in OEChem handler, this is truly zero-copy; other format handlers
+        may copy internally if they do not override the OEMolBase read path.
+
+        :param mol: An ``oechem`` molecule to populate.
+        :returns: ``True`` if a molecule was read, ``False`` at end-of-stream.
+        :raises ValueError: If the reader is closed.
+        """
+        if self._closed:
+            raise ValueError("I/O operation on closed reader")
+        return self._handle.next(mol)
+
+    def as_type(self, cls):
+        """Iterate molecules as instances of ``cls``.
+
+        :param cls: An ``oechem`` molecule class (``OEMol``, ``OEGraphMol``,
+            or ``OEQMol``).
+        :returns: A generator yielding fresh ``cls`` instances.
+        :raises ValueError: If the reader is closed.
+        :raises TypeError: If ``cls`` is not an ``OEMolBase`` subclass.
+        """
+        from openeye import oechem
+
+        if self._closed:
+            raise ValueError("I/O operation on closed reader")
+        if not (isinstance(cls, type) and issubclass(cls, oechem.OEMolBase)):
+            raise TypeError(
+                "as_type() requires an oechem OEMolBase subclass, "
+                "got {!r}".format(cls))
+        mol = cls()
+        while True:
+            if self._closed:
+                raise ValueError("I/O operation on closed reader")
+            if not self._handle.next(mol):
+                break
+            yield mol
+            mol = cls()
 
     def __enter__(self):
         return self
@@ -727,18 +774,16 @@ def filter(iterable, predicate):
         heavy = oeio.filter(oeio.read("in.sdf"),
             lambda mol: mol.NumAtoms() > 10)
     """
-    from openeye import oechem
-
     for mol in iterable:
         if predicate(mol):
-            yield oechem.OEGraphMol(mol)
+            yield type(mol)(mol)
 
 
 def transform(iterable, func):
     """Transform molecules from an iterable in-place.
 
     :param iterable: An iterable of molecules (e.g., from read()).
-    :param func: Function that takes an OEGraphMol and modifies it in-place.
+    :param func: Function that takes a molecule (OEMolBase) and modifies it in-place.
     :returns: Generator yielding transformed molecules.
 
     Example::
@@ -746,11 +791,9 @@ def transform(iterable, func):
         prepared = oeio.transform(oeio.read("in.sdf"),
             lambda mol: oechem.OEAddExplicitHydrogens(mol))
     """
-    from openeye import oechem
-
     for mol in iterable:
         func(mol)
-        yield oechem.OEGraphMol(mol)
+        yield type(mol)(mol)
 
 
 def formats():
@@ -761,7 +804,7 @@ def formats():
     return list(FormatRegistry.instance().formats())
 
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 
 _install_exception_types(Error, FormatError, FileError)
 %}

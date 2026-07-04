@@ -66,7 +66,7 @@ public:
     /// \param upstream The upstream source to read from.
     /// \param fn Transformation function applied to each molecule.
     TransformedMolSource(std::unique_ptr<MolSource> upstream,
-                         std::function<void(OEChem::OEGraphMol&)> fn)
+                         std::function<void(OEChem::OEMolBase&)> fn)
         : upstream_(std::move(upstream)), fn_(std::move(fn)) {}
 
     OEIO_HOT bool next(OEChem::OEGraphMol& mol) override {
@@ -76,9 +76,18 @@ public:
         return true;
     }
 
+    OEIO_HOT bool next(OEChem::OEMolBase& mol) override {
+        // Forward the caller's OEMolBase& unchanged so the dynamic type reaches
+        // the upstream source and multi-conformer records are preserved.
+        if (!upstream_->next(mol))
+            return false;
+        fn_(mol);
+        return true;
+    }
+
 private:
     std::unique_ptr<MolSource> upstream_;
-    std::function<void(OEChem::OEGraphMol&)> fn_;
+    std::function<void(OEChem::OEMolBase&)> fn_;
 };
 
 }  // namespace detail
@@ -120,7 +129,7 @@ MolRange filter(MolRange&& range, std::function<bool(const OEChem::OEMolBase&)> 
         std::move(source), std::move(pred)));
 }
 
-MolRange transform(MolRange&& range, std::function<void(OEChem::OEGraphMol&)> fn) {
+MolRange transform(MolRange&& range, std::function<void(OEChem::OEMolBase&)> fn) {
     auto source = range.release_source();
     return MolRange(std::make_unique<detail::TransformedMolSource>(
         std::move(source), std::move(fn)));

@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace oeio {
 namespace test {
@@ -200,6 +201,69 @@ TEST_F(OEChemHandlerTest, ReadIntoOEMolBase) {
         container.Clear();
     }
     EXPECT_EQ(count, 2);
+}
+
+TEST_F(OEChemHandlerTest, NextOEMolReadsMultiConformer) {
+    // Write a genuine 3-conformer molecule to an OEB file.
+    std::string path = (tmpdir_ / "multiconf.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        mc.SetTitle("ethanol_mc");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> coords(mc.NumAtoms() * 3);
+        mc.GetCoords(coords.data());
+        mc.NewConf(coords.data());
+        mc.NewConf(coords.data());
+        ASSERT_EQ(mc.NumConfs(), 3u);
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+
+    auto* handler = oeio::FormatRegistry::instance().lookup(path);
+    ASSERT_NE(handler, nullptr);
+    auto source = handler->make_reader(path, std::any{});
+    ASSERT_NE(source, nullptr);
+
+    // Read into an OEMol bound as OEMolBase& — must preserve all 3 conformers.
+    OEChem::OEMol mol;
+    OEChem::OEMolBase& ref = mol;
+    ASSERT_TRUE(source->next(ref));
+    EXPECT_EQ(mol.NumConfs(), 3u);
+}
+
+TEST_F(OEChemHandlerTest, NextOEGraphMolFlattensMultiConformer) {
+    // Same 3-conformer OEB as above: through an OEGraphMol path each conformer
+    // surfaces as its own single-conformer record (3 records), confirming the
+    // dispatch does NOT route OEGraphMol through the multi-conformer overload.
+    std::string path = (tmpdir_ / "multiconf.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        mc.SetTitle("ethanol_mc");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> coords(mc.NumAtoms() * 3);
+        mc.GetCoords(coords.data());
+        mc.NewConf(coords.data());
+        mc.NewConf(coords.data());
+        ASSERT_EQ(mc.NumConfs(), 3u);
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+    auto* handler = oeio::FormatRegistry::instance().lookup(path);
+    ASSERT_NE(handler, nullptr);
+    auto source = handler->make_reader(path, std::any{});
+    ASSERT_NE(source, nullptr);
+
+    OEChem::OEGraphMol mol;
+    OEChem::OEMolBase& ref = mol;
+    int count = 0;
+    while (source->next(ref)) { ++count; }
+    EXPECT_EQ(count, 3);  // one single-conformer record per conformer
 }
 
 }  // namespace test

@@ -44,6 +44,16 @@ public:
 
     bool next(OEChem::OEMolBase& mol) override {
         mol.Clear();
+        // OEReadMolecule overloads resolve by static type; the OEMolBase&
+        // overload flattens conformers. Dispatch on the dynamic type so an
+        // OEMol (OEMCMolBase) assembles multi-conformer records and an OEQMol
+        // (OEQMolBase) reads as a query.
+        if (auto* mc = dynamic_cast<OEChem::OEMCMolBase*>(&mol)) {
+            return OEChem::OEReadMolecule(ifs_, *mc);
+        }
+        if (auto* q = dynamic_cast<OEChem::OEQMolBase*>(&mol)) {
+            return OEChem::OEReadMolecule(ifs_, *q);
+        }
         return OEChem::OEReadMolecule(ifs_, mol);
     }
 
@@ -77,11 +87,29 @@ public:
     }
 
     bool write(const OEChem::OEMolBase& mol) override {
-        // OEWriteMolecule takes a non-const reference; the OEChem API does not
-        // modify the molecule but the signature is historical.  The const_cast
-        // is safe here.
-        auto& mutable_mol = const_cast<OEChem::OEMolBase&>(mol);
-        return OEChem::OEWriteMolecule(ofs_, mutable_mol) != 0;
+        // OEWriteMolecule overloads resolve by static type. The OEMCMolBase&
+        // overload writes every conformer as its own record using each
+        // conformer's own title/data, whereas the OEMolBase& overload writes a
+        // single record using the molecule-level title/data. Route genuinely
+        // multi-conformer molecules through the OEMCMolBase& overload so their
+        // conformers survive; keep single-conformer molecules on the
+        // OEMolBase& overload so molecule-level title/SD data (as set by
+        // transforms) is what gets written. OEWriteConstMolecule preserves
+        // const-correctness (no const_cast).
+        //
+        // Tradeoff: for a genuinely multi-conformer molecule, per-record output
+        // reflects each conformer's own title/data, so a molecule-level-only
+        // title change may not surface — the necessary cost of not collapsing
+        // conformers. No conformer data is lost.
+        if (auto* mc = dynamic_cast<const OEChem::OEMCMolBase*>(&mol)) {
+            if (mc->NumConfs() > 1) {
+                return OEChem::OEWriteConstMolecule(ofs_, *mc) != 0;
+            }
+        }
+        if (auto* q = dynamic_cast<const OEChem::OEQMolBase*>(&mol)) {
+            return OEChem::OEWriteConstMolecule(ofs_, *q) != 0;
+        }
+        return OEChem::OEWriteConstMolecule(ofs_, mol) != 0;
     }
 
     void close() override {

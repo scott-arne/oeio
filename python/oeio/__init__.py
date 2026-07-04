@@ -13,8 +13,8 @@ import warnings
 from importlib import metadata
 from pathlib import Path
 
-__version__ = "0.2.5"
-__version_info__ = (0, 2, 5)
+__version__ = "0.3.0"
+__version_info__ = (0, 3, 0)
 
 
 _OPENEYE_COMPAT_PRELOAD_PATHS: list[str] = []
@@ -584,7 +584,8 @@ class _PluginHandler:
     :param name: Human-readable format name (e.g. "Maestro").
     :param extensions: List of file extensions (e.g. [".mae", ".mae.gz"]).
     :param description: Short description of the format.
-    :param reader_factory: Callable(path) -> iterator of OEGraphMol, or None.
+    :param reader_factory: Callable(path) -> iterable of oechem molecules
+        (any type; not required to be OEGraphMol), or None.
     :param writer_factory: Callable(path) -> context manager with add(mol), or None.
     """
 
@@ -676,7 +677,9 @@ def register_handler(name, extensions, description="",
     :param name: Human-readable format name (e.g. "Maestro").
     :param extensions: List of file extensions (e.g. [".mae", ".mae.gz"]).
     :param description: Short description of the format.
-    :param reader_factory: Callable(path) -> iterable of OEGraphMol, or None.
+    :param reader_factory: Callable(path) -> iterable of oechem molecules
+        (any type; the iterable is returned to the caller as-is and is not
+        required to expose as_type/read_into), or None.
     :param writer_factory: Callable(path) -> context manager with add(mol), or None.
     """
     _plugin_registry.register(_PluginHandler(
@@ -694,9 +697,17 @@ def read(path, config=None):
     Checks Python-registered plugin handlers first, then falls back to the
     C++ FormatRegistry.
 
+    .. note::
+        The default ``OEMol`` iteration, :meth:`Reader.as_type`, and
+        :meth:`Reader.read_into` apply to the built-in SWIG-backed
+        :class:`Reader`. When a registered plugin handler matches ``path``,
+        this returns the plugin's ``reader_factory`` result instead, which is
+        governed by that plugin's own contract and may not expose ``as_type``/
+        ``read_into`` or default to ``OEMol``.
+
     :param path: Path to a molecular file.
     :param config: Optional handler-specific configuration.
-    :returns: A :class:`Reader` or plugin-specific iterable.
+    :returns: A :class:`Reader` (built-in formats) or a plugin-specific iterable.
     """
     path = str(path)
     handler = _plugin_registry.lookup(path)

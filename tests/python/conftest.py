@@ -68,3 +68,24 @@ def smi_file(tmp_path):
 
     ofs.close()
     return path
+
+
+@pytest.fixture
+def multiconf_oeb(tmp_path):
+    """Write a temp OEB with one 3-conformer molecule; return the path."""
+    from openeye import oechem
+
+    path = str(tmp_path / "multiconf.oeb")
+    mc = oechem.OEMol()
+    oechem.OESmilesToMol(mc, "CCO")
+    mc.SetTitle("ethanol_mc")
+    oechem.OEAddExplicitHydrogens(mc)
+    coords = oechem.OEFloatArray(mc.NumAtoms() * 3)
+    mc.GetCoords(coords)
+    mc.NewConf(coords)
+    mc.NewConf(coords)
+    ofs = oechem.oemolostream()
+    ofs.open(path)
+    oechem.OEWriteMolecule(ofs, mc)
+    ofs.close()
+    return path
