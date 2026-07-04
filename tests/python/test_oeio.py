@@ -332,6 +332,16 @@ class TestAsType:
         with pytest.raises(ValueError):
             list(reader.as_type(oechem.OEGraphMol))
 
+    def test_as_type_close_mid_iteration_raises(self, sdf_file):
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        gen = reader.as_type(oechem.OEGraphMol)
+        next(gen)          # consume one molecule
+        reader.close()
+        with pytest.raises(ValueError):
+            next(gen)      # resuming after close must raise ValueError, not AttributeError
+
 
 class TestExceptions:
     """Test oeio exception hierarchy."""

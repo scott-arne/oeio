@@ -667,11 +667,13 @@ class Reader:
             mol = oechem.OEMol()
 
     def read_into(self, mol):
-        """Read the next molecule into a caller-owned molecule (zero-copy).
+        """Read the next molecule into a caller-owned molecule.
 
-        Reuses ``mol`` as the buffer — no per-molecule allocation. The
-        molecule's type determines the read behavior (an ``OEMol`` reads
-        multi-conformer, an ``OEGraphMol`` single-conformer).
+        Reuses ``mol`` as the buffer (no new Python molecule allocated per
+        call). The molecule's type determines the read behavior (an ``OEMol``
+        reads multi-conformer, an ``OEGraphMol`` single-conformer). For the
+        built-in OEChem handler, this is truly zero-copy; other format handlers
+        may copy internally if they do not override the OEMolBase read path.
 
         :param mol: An ``oechem`` molecule to populate.
         :returns: ``True`` if a molecule was read, ``False`` at end-of-stream.
@@ -699,7 +701,11 @@ class Reader:
                 "as_type() requires an oechem OEMolBase subclass, "
                 "got {!r}".format(cls))
         mol = cls()
-        while self._handle.next(mol):
+        while True:
+            if self._closed:
+                raise ValueError("I/O operation on closed reader")
+            if not self._handle.next(mol):
+                break
             yield mol
             mol = cls()
 
