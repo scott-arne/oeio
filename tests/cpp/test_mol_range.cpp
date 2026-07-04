@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace oeio {
@@ -188,6 +189,56 @@ TEST_F(MolRangeTest, ReadIntoOEMolPreservesConformers) {
     OEChem::OEMol mol;
     ASSERT_TRUE(range.read_into(mol));
     EXPECT_EQ(mol.NumConfs(), 2u);
+}
+
+TEST_F(MolRangeTest, AsOEGraphMolYieldsGraphMol) {
+    std::string path = write_temp_file(2);
+    int count = 0;
+    for (auto& mol : oeio::read(path).as<OEChem::OEGraphMol>()) {
+        // Binds to OEGraphMol& only if value_type is OEGraphMol.
+        OEChem::OEGraphMol& g = mol;
+        EXPECT_GT(g.NumAtoms(), 0u);
+        ++count;
+    }
+    EXPECT_EQ(count, 2);
+}
+
+TEST_F(MolRangeTest, AsOEMolPreservesConformers) {
+    std::string path = (tmpdir_ / "mc.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> c(mc.NumAtoms() * 3);
+        mc.GetCoords(c.data());
+        mc.NewConf(c.data());  // 2 confs
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+    auto typed = oeio::read(path).as<OEChem::OEMol>();
+    auto it = typed.begin();
+    ASSERT_NE(it, typed.end());
+    EXPECT_EQ((*it).NumConfs(), 2u);
+}
+
+TEST_F(MolRangeTest, AsOEQMolReads) {
+    std::string path = write_temp_file(2);  // 2 single-conf mols
+    int count = 0;
+    for (auto& mol : oeio::read(path).as<OEChem::OEQMol>()) {
+        OEChem::OEQMol& q = mol;  // binds only if value_type is OEQMol
+        EXPECT_GT(q.NumAtoms(), 0u);
+        ++count;
+    }
+    EXPECT_EQ(count, 2);
+}
+
+TEST_F(MolRangeTest, AsTypeConstraintTraits) {
+    EXPECT_TRUE((std::is_convertible<OEChem::OEMol&, OEChem::OEMolBase&>::value));
+    EXPECT_TRUE((std::is_convertible<OEChem::OEGraphMol&, OEChem::OEMolBase&>::value));
+    EXPECT_TRUE((std::is_convertible<OEChem::OEQMol&, OEChem::OEMolBase&>::value));
+    EXPECT_FALSE((std::is_convertible<int&, OEChem::OEMolBase&>::value));
 }
 
 }  // namespace test

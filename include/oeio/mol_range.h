@@ -4,13 +4,18 @@
 /// \brief Range-based interface for streaming molecules.
 
 #include <functional>
+#include <iterator>
 #include <memory>
+#include <type_traits>
 
 #include <oechem.h>
 
 #include "oeio/format_handler.h"
 
 namespace oeio {
+
+template <typename T>
+class TypedMolRange;
 
 /// \brief A range representing a stream of molecules.
 ///
@@ -84,6 +89,18 @@ public:
     /// \returns true if a molecule was read, false if the source is exhausted or null.
     bool read_into(OEChem::OEMolBase& mol);
 
+    /// \brief Return a typed view that yields molecules of type T.
+    ///
+    /// Moves the underlying MolSource into the returned view, leaving this
+    /// MolRange empty (safe for the read("x").as<OEMol>() temporary idiom).
+    /// T must be convertible to OEChem::OEMolBase& (e.g. OEMol, OEGraphMol,
+    /// OEQMol).
+    ///
+    /// \tparam T The molecule type to read into.
+    /// \returns A TypedMolRange<T> over the moved source.
+    template <typename T>
+    TypedMolRange<T> as();
+
 private:
     std::unique_ptr<MolSource> release_source();
 
@@ -92,5 +109,68 @@ private:
 
     std::unique_ptr<MolSource> source_;
 };
+
+/// \brief A typed view over a MolSource that yields molecules of type T.
+///
+/// T must be convertible to OEChem::OEMolBase& (verified via static_assert).
+/// The iterator reuses a single T buffer, mirroring MolRange::Iterator.
+template <typename T>
+class TypedMolRange {
+    static_assert(std::is_convertible<T&, OEChem::OEMolBase&>::value,
+                  "TypedMolRange<T>: T must be convertible to OEChem::OEMolBase&");
+    static_assert(std::is_default_constructible<T>::value,
+                  "TypedMolRange<T>: T must be default-constructible");
+
+public:
+    explicit TypedMolRange(std::unique_ptr<MolSource> source)
+        : source_(std::move(source)) {}
+
+    TypedMolRange(TypedMolRange&&) noexcept = default;
+    TypedMolRange& operator=(TypedMolRange&&) noexcept = default;
+    TypedMolRange(const TypedMolRange&) = delete;
+    TypedMolRange& operator=(const TypedMolRange&) = delete;
+
+    struct Sentinel {};
+
+    class Iterator {
+    public:
+        using value_type = T;
+        using reference = T&;
+        using pointer = T*;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::input_iterator_tag;
+
+        Iterator() = default;
+        explicit Iterator(MolSource* source) : source_(source), done_(false) {
+            ++(*this);
+        }
+
+        reference operator*() { return mol_; }
+        pointer operator->() { return &mol_; }
+        Iterator& operator++() {
+            OEChem::OEMolBase& ref = mol_;  // rely on operator OEMolBase&()
+            done_ = !source_ || !source_->next(ref);
+            return *this;
+        }
+        bool operator==(const Sentinel&) const { return done_; }
+        bool operator!=(const Sentinel& s) const { return !(*this == s); }
+
+    private:
+        MolSource* source_ = nullptr;
+        T mol_;
+        bool done_ = true;
+    };
+
+    Iterator begin() { return Iterator(source_.get()); }
+    Sentinel end() const { return Sentinel{}; }
+
+private:
+    std::unique_ptr<MolSource> source_;
+};
+
+template <typename T>
+TypedMolRange<T> MolRange::as() {
+    return TypedMolRange<T>(release_source());
+}
 
 }  // namespace oeio
