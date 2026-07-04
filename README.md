@@ -60,6 +60,28 @@ pip install --config-settings editable_mode=compat -e python/
 
 ## Usage
 
+### Molecule Types
+
+`oeio` reads into `OEMol` (multi-conformer) **by default**, in both C++ and
+Python, matching OpenEye Orion's default molecule type. You select a different
+type either by which iterator view you take or by the object you hand to
+`read_into` — the type is never a separate argument:
+
+| Mode | C++ | Python |
+|------|-----|--------|
+| Default (`OEMol`) | `for (auto& m : oeio::read(path))` | `for m in oeio.read(path)` |
+| Typed view | `oeio::read(path).as<OEChem::OEGraphMol>()` | `reader.as_type(oechem.OEGraphMol)` |
+| Zero-copy by-reference | `range.read_into(mol)` | `reader.read_into(mol)` |
+
+`.as<T>()` / `.as_type(cls)` accept any OpenEye molecule type — `OEMol`,
+`OEGraphMol`, `OEQMol`. With `read_into`, the caller-owned object *is* the type,
+and its buffer is reused across the whole read (no per-molecule allocation).
+
+> **Upgrading from 0.2.x?** The default read type changed from `OEGraphMol` to
+> `OEMol` in 0.3.0 — a breaking change. See [CHANGELOG.md](CHANGELOG.md) for the
+> migration path (`.as_type(oechem.OEGraphMol)` / `.as<OEChem::OEGraphMol>()`
+> restores the previous single-conformer behavior).
+
 ### Python
 
 **Reading molecules:**
