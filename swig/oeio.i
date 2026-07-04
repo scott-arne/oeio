@@ -666,6 +666,43 @@ class Reader:
             yield mol
             mol = oechem.OEMol()
 
+    def read_into(self, mol):
+        """Read the next molecule into a caller-owned molecule (zero-copy).
+
+        Reuses ``mol`` as the buffer — no per-molecule allocation. The
+        molecule's type determines the read behavior (an ``OEMol`` reads
+        multi-conformer, an ``OEGraphMol`` single-conformer).
+
+        :param mol: An ``oechem`` molecule to populate.
+        :returns: ``True`` if a molecule was read, ``False`` at end-of-stream.
+        :raises ValueError: If the reader is closed.
+        """
+        if self._closed:
+            raise ValueError("I/O operation on closed reader")
+        return self._handle.next(mol)
+
+    def as_type(self, cls):
+        """Iterate molecules as instances of ``cls``.
+
+        :param cls: An ``oechem`` molecule class (``OEMol``, ``OEGraphMol``,
+            or ``OEQMol``).
+        :returns: A generator yielding fresh ``cls`` instances.
+        :raises ValueError: If the reader is closed.
+        :raises TypeError: If ``cls`` is not an ``OEMolBase`` subclass.
+        """
+        from openeye import oechem
+
+        if self._closed:
+            raise ValueError("I/O operation on closed reader")
+        if not (isinstance(cls, type) and issubclass(cls, oechem.OEMolBase)):
+            raise TypeError(
+                "as_type() requires an oechem OEMolBase subclass, "
+                "got {!r}".format(cls))
+        mol = cls()
+        while self._handle.next(mol):
+            yield mol
+            mol = cls()
+
     def __enter__(self):
         return self
 

@@ -249,6 +249,90 @@ class TestReaderContextManager:
             reader.close()
 
 
+class TestReadInto:
+    """Test Reader.read_into() zero-copy reads."""
+
+    def test_read_into_populates_caller_mol(self, sdf_file):
+        import oeio
+
+        mol = oechem.OEMol()
+        count = 0
+        with oeio.read(sdf_file) as reader:
+            while reader.read_into(mol):
+                assert mol.NumAtoms() > 0
+                count += 1
+        assert count == 2
+
+    def test_read_into_preserves_conformers(self, multiconf_oeb):
+        import oeio
+
+        mol = oechem.OEMol()
+        with oeio.read(multiconf_oeb) as reader:
+            assert reader.read_into(mol)
+            assert mol.NumConfs() == 3
+
+    def test_read_into_reuses_buffer(self, sdf_file):
+        """read_into does not allocate a new object per molecule."""
+        import oeio
+
+        mol = oechem.OEMol()
+        ids = set()
+        with oeio.read(sdf_file) as reader:
+            while reader.read_into(mol):
+                ids.add(id(mol))
+        assert len(ids) == 1  # same object reused
+
+    def test_read_into_closed_raises(self, sdf_file):
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        with pytest.raises(ValueError):
+            reader.read_into(oechem.OEMol())
+
+
+class TestAsType:
+    """Test Reader.as_type() typed iteration."""
+
+    def test_as_type_oegraphmol(self, sdf_file):
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            for mol in reader.as_type(oechem.OEGraphMol):
+                assert isinstance(mol, oechem.OEGraphMol)
+
+    def test_as_type_oemol_preserves_conformers(self, multiconf_oeb):
+        import oeio
+
+        with oeio.read(multiconf_oeb) as reader:
+            mols = list(reader.as_type(oechem.OEMol))
+        assert len(mols) == 1
+        assert mols[0].NumConfs() == 3
+
+    def test_as_type_oeqmol(self, sdf_file):
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            mols = list(reader.as_type(oechem.OEQMol))
+        assert len(mols) == 2
+        assert all(isinstance(m, oechem.OEQMol) for m in mols)
+
+    def test_as_type_rejects_non_molecule(self, sdf_file):
+        import oeio
+
+        with oeio.read(sdf_file) as reader:
+            with pytest.raises(TypeError):
+                list(reader.as_type(int))
+
+    def test_as_type_closed_raises(self, sdf_file):
+        import oeio
+
+        reader = oeio.read(sdf_file)
+        reader.close()
+        with pytest.raises(ValueError):
+            list(reader.as_type(oechem.OEGraphMol))
+
+
 class TestExceptions:
     """Test oeio exception hierarchy."""
 
