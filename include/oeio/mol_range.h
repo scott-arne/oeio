@@ -78,7 +78,7 @@ private:
     std::unique_ptr<MolSource> release_source();
 
     friend MolRange filter(MolRange&&, std::function<bool(const OEChem::OEMolBase&)>);
-    friend MolRange transform(MolRange&&, std::function<void(OEChem::OEGraphMol&)>);
+    friend MolRange transform(MolRange&&, std::function<void(OEChem::OEMolBase&)>);
 
     std::unique_ptr<MolSource> source_;
 };
