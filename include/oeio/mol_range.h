@@ -141,9 +141,6 @@ public:
         using iterator_category = std::input_iterator_tag;
 
         Iterator() = default;
-        explicit Iterator(MolSource* source) : source_(source), done_(false) {
-            ++(*this);
-        }
 
         reference operator*() { return mol_; }
         pointer operator->() { return &mol_; }
@@ -156,6 +153,12 @@ public:
         bool operator!=(const Sentinel& s) const { return !(*this == s); }
 
     private:
+        friend class TypedMolRange;
+
+        explicit Iterator(MolSource* source) : source_(source), done_(false) {
+            ++(*this);
+        }
+
         MolSource* source_ = nullptr;
         T mol_;
         bool done_ = true;
