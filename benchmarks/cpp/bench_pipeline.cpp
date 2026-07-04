@@ -35,7 +35,7 @@ static void BM_OeioPipeline(benchmark::State& state) {
             oeio::filter(oeio::read(in_path), [](const OEChem::OEMolBase& mol) {
                 return mol.NumAtoms() > 3;
             }),
-            [](OEChem::OEGraphMol& mol) {
+            [](OEChem::OEMolBase& mol) {
                 mol.SetTitle("processed");
             }
         ) | oeio::write(out_path);
