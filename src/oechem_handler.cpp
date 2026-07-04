@@ -96,6 +96,11 @@ public:
         // OEMolBase& overload so molecule-level title/SD data (as set by
         // transforms) is what gets written. OEWriteConstMolecule preserves
         // const-correctness (no const_cast).
+        //
+        // Tradeoff: for a genuinely multi-conformer molecule, per-record output
+        // reflects each conformer's own title/data, so a molecule-level-only
+        // title change may not surface — the necessary cost of not collapsing
+        // conformers. No conformer data is lost.
         if (auto* mc = dynamic_cast<const OEChem::OEMCMolBase*>(&mol)) {
             if (mc->NumConfs() > 1) {
                 return OEChem::OEWriteConstMolecule(ofs_, *mc) != 0;
