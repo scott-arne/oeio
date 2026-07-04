@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace oeio {
 namespace test {
@@ -121,6 +122,36 @@ TEST_F(MolRangeTest, MoleculeDataPreserved) {
     ASSERT_EQ(atom_counts.size(), 2);
     EXPECT_EQ(atom_counts[0], 3);  // C-C-O
     EXPECT_EQ(atom_counts[1], 6);  // benzene ring
+}
+
+TEST_F(MolRangeTest, DefaultIterationYieldsOEMol) {
+    std::string path = write_temp_file(2);
+    auto range = oeio::read(path);
+    auto it = range.begin();
+    ASSERT_NE(it, range.end());
+    // value_type must be OEMol now, so this reference binds without a cast.
+    OEChem::OEMol& mol = *it;
+    EXPECT_GT(mol.NumAtoms(), 0u);
+}
+
+TEST_F(MolRangeTest, DefaultIterationPreservesConformers) {
+    std::string path = (tmpdir_ / "mc.oeb").string();
+    {
+        OEChem::OEMol mc;
+        OEChem::OESmilesToMol(mc, "CCO");
+        OEChem::OEAddExplicitHydrogens(mc);
+        std::vector<float> c(mc.NumAtoms() * 3);
+        mc.GetCoords(c.data());
+        mc.NewConf(c.data());  // 2 confs total
+        OEChem::oemolostream ofs;
+        ASSERT_TRUE(ofs.open(path));
+        OEChem::OEWriteMolecule(ofs, mc);
+        ofs.close();
+    }
+    auto range = oeio::read(path);
+    auto it = range.begin();
+    ASSERT_NE(it, range.end());
+    EXPECT_EQ((*it).NumConfs(), 2u);
 }
 
 }  // namespace test

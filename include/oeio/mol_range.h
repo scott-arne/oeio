@@ -39,9 +39,9 @@ public:
     /// This is an input iterator that reads molecules one at a time.
     class Iterator {
     public:
-        using value_type = OEChem::OEGraphMol;
-        using reference = OEChem::OEGraphMol&;
-        using pointer = OEChem::OEGraphMol*;
+        using value_type = OEChem::OEMol;
+        using reference = OEChem::OEMol&;
+        using pointer = OEChem::OEMol*;
         using difference_type = std::ptrdiff_t;
         using iterator_category = std::input_iterator_tag;
 
@@ -60,7 +60,7 @@ public:
         explicit Iterator(MolSource* source);
 
         MolSource* source_ = nullptr;
-        OEChem::OEGraphMol mol_;
+        OEChem::OEMol mol_;
         bool done_ = true;
     };
 
