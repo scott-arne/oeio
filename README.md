@@ -161,18 +161,20 @@ while (range.read_into(mol)) {
 **Pipeline: filter, transform, write:**
 
 ```cpp
-oeio::read("input.sdf")
-    | oeio::filter([](const OEChem::OEMolBase& mol) {
+oeio::transform(
+    oeio::filter(oeio::read("input.sdf"), [](const OEChem::OEMolBase& mol) {
         return mol.NumAtoms() > 10;
-    })
-    | oeio::transform([](OEChem::OEMolBase& mol) {
+    }),
+    [](OEChem::OEMolBase& mol) {
         OEChem::OEAddExplicitHydrogens(mol);
-    })
-    | oeio::write("output.sdf");
+    }
+) | oeio::write("output.sdf");
 ```
 
-The pipe operator (`|`) connects a `MolRange` to a `Writer`, streaming molecules
-without intermediate storage.
+`filter` and `transform` are functions that take a `MolRange` and return a new
+`MolRange`, so they compose by nesting. The pipe operator (`|`) then connects
+the resulting `MolRange` to a `Writer`, streaming molecules without
+intermediate storage.
 
 **Reading with configuration:**
 
