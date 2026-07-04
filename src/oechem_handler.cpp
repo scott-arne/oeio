@@ -44,6 +44,16 @@ public:
 
     bool next(OEChem::OEMolBase& mol) override {
         mol.Clear();
+        // OEReadMolecule overloads resolve by static type; the OEMolBase&
+        // overload flattens conformers. Dispatch on the dynamic type so an
+        // OEMol (OEMCMolBase) assembles multi-conformer records and an OEQMol
+        // (OEQMolBase) reads as a query.
+        if (auto* mc = dynamic_cast<OEChem::OEMCMolBase*>(&mol)) {
+            return OEChem::OEReadMolecule(ifs_, *mc);
+        }
+        if (auto* q = dynamic_cast<OEChem::OEQMolBase*>(&mol)) {
+            return OEChem::OEReadMolecule(ifs_, *q);
+        }
         return OEChem::OEReadMolecule(ifs_, mol);
     }
 
