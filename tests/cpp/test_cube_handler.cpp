@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "oeio/cube_grid.h"
+#include "oeio/cube_handler.h"
+#include "oeio/exceptions.h"
 #include "oeio/format_handler.h"
 #include "oeio/mol_range.h"
 #include "oeio/write.h"
@@ -10,10 +12,17 @@
 
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace oeio {
 namespace test {
+
+namespace {
+std::string data_path(const char* name) {
+    return std::string(OEIO_TEST_DATA_DIR) + "/" + name;
+}
+}
 
 // A minimal MolSource that yields exactly one empty molecule and no grids,
 // used to prove the defaulted grid overloads delegate to the molecule path.
@@ -206,6 +215,91 @@ TEST(CubeGrid, NonFiniteRejected) {
     ax2.vec[0][1] = std::numeric_limits<double>::infinity();  // Inf off-diagonal
     double spacing2 = 0.0;
     EXPECT_FALSE(oeio::cube::is_axis_aligned_uniform(ax2, 1e-6, spacing2));
+}
+
+TEST(CubeReader, SingleGridReadsMolAndGrid) {
+    oeio::builtin::CubeMolSource src(data_path("single_grid.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    ASSERT_TRUE(src.next(mol, grids));
+    EXPECT_EQ(mol.NumAtoms(), 1u);
+    ASSERT_EQ(grids.size(), 1u);
+    EXPECT_EQ(grids[0].GetXDim(), 2u);
+    EXPECT_EQ(grids[0].GetYDim(), 2u);
+    EXPECT_EQ(grids[0].GetZDim(), 2u);
+    // spacing 0.5 Bohr -> Angstrom
+    EXPECT_NEAR(grids[0].GetSpacing(), 0.5 * oeio::cube::BOHR_TO_ANGSTROM, 1e-5);
+    EXPECT_FLOAT_EQ(grids[0].GetValues()[0], 0.0f);
+    EXPECT_FLOAT_EQ(grids[0].GetValues()[7], 7.0f);
+    EXPECT_FALSE(src.next(mol, grids));  // one record only
+}
+
+TEST(CubeReader, MoCubeReadsThreeGrids) {
+    oeio::builtin::CubeMolSource src(data_path("mo_3grid.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    ASSERT_TRUE(src.next(mol, grids));
+    ASSERT_EQ(grids.size(), 3u);
+    // orbital-fastest de-interleave: grid0 = {0,10}, grid1 = {1,11}, grid2 = {2,12}
+    EXPECT_FLOAT_EQ(grids[0].GetValues()[0], 0.0f);
+    EXPECT_FLOAT_EQ(grids[0].GetValues()[1], 10.0f);
+    EXPECT_FLOAT_EQ(grids[1].GetValues()[0], 1.0f);
+    EXPECT_FLOAT_EQ(grids[2].GetValues()[1], 12.0f);
+}
+
+TEST(CubeReader, ReadIntoFillsMinKN) {
+    oeio::builtin::CubeMolSource src(data_path("mo_3grid.cube"));
+    OEChem::OEMol mol;
+    OESystem::OEScalarGrid g0;
+    std::vector<OESystem::OEScalarGrid*> grids = { &g0 };  // K=1, N=3
+    int n = -1;
+    ASSERT_TRUE(src.next(mol, grids, &n));
+    EXPECT_EQ(n, 3);
+    EXPECT_FLOAT_EQ(g0.GetValues()[0], 0.0f);
+}
+
+TEST(CubeReader, SkewedRejected) {
+    oeio::builtin::CubeMolSource src(data_path("skewed.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+TEST(CubeReader, AnisotropicRejected) {
+    oeio::builtin::CubeMolSource src(data_path("anisotropic.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+TEST(CubeReader, ReflectedRejected) {
+    oeio::builtin::CubeMolSource src(data_path("reflected.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+TEST(CubeReader, TruncatedVolumetricBlockRejected) {
+    oeio::builtin::CubeMolSource src(data_path("truncated.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+TEST(CubeReader, AngstromUnitsNoBohrConversion) {
+    // Negative voxel counts => coordinates already in Angstrom; spacing stays 0.5.
+    oeio::builtin::CubeMolSource src(data_path("angstrom.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    ASSERT_TRUE(src.next(mol, grids));
+    ASSERT_EQ(grids.size(), 1u);
+    EXPECT_NEAR(grids[0].GetSpacing(), 0.5f, 1e-5);  // NOT scaled by Bohr factor
+    // Atom at (1,0,0) Angstrom stays at x=1.0 (no Bohr->A scaling).
+    float xyz[3];
+    OESystem::OEIter<const OEChem::OEAtomBase> ai = mol.GetAtoms();
+    ASSERT_TRUE(bool(ai));
+    mol.GetCoords(&*ai, xyz);
+    EXPECT_NEAR(xyz[0], 1.0f, 1e-4);
 }
 
 }  // namespace test

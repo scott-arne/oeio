@@ -24,5 +24,8 @@ target_link_libraries(oeio_tests
         GTest::gtest_main
 )
 
+target_compile_definitions(oeio_tests PRIVATE
+    OEIO_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../data")
+
 include(GoogleTest)
 gtest_discover_tests(oeio_tests)
