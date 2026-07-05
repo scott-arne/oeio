@@ -8,6 +8,7 @@
 #include <oechem.h>
 #include <oegrid.h>
 
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -189,6 +190,22 @@ TEST(CubeGrid, OriginMidpointRoundTrip) {
     EXPECT_DOUBLE_EQ(origin_back[0], origin[0]);
     EXPECT_DOUBLE_EQ(origin_back[1], origin[1]);
     EXPECT_DOUBLE_EQ(origin_back[2], origin[2]);
+}
+
+TEST(CubeGrid, NonFiniteRejected) {
+    oeio::cube::CubeAxes ax{};
+    ax.nvox[0] = ax.nvox[1] = ax.nvox[2] = 3;
+    ax.vec[0][0] = std::numeric_limits<double>::quiet_NaN();  // NaN diagonal
+    ax.vec[1][1] = 0.5; ax.vec[2][2] = 0.5;
+    double spacing = 0.0;
+    EXPECT_FALSE(oeio::cube::is_axis_aligned_uniform(ax, 1e-6, spacing));
+
+    oeio::cube::CubeAxes ax2{};
+    ax2.nvox[0] = ax2.nvox[1] = ax2.nvox[2] = 3;
+    ax2.vec[0][0] = 0.5; ax2.vec[1][1] = 0.5; ax2.vec[2][2] = 0.5;
+    ax2.vec[0][1] = std::numeric_limits<double>::infinity();  // Inf off-diagonal
+    double spacing2 = 0.0;
+    EXPECT_FALSE(oeio::cube::is_axis_aligned_uniform(ax2, 1e-6, spacing2));
 }
 
 }  // namespace test

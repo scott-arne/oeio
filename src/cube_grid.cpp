@@ -9,6 +9,12 @@ namespace oeio {
 namespace cube {
 
 bool is_axis_aligned_uniform(const CubeAxes& ax, double tol, double& spacing_out) {
+    if (!std::isfinite(tol)) return false;
+    for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) {
+            if (!std::isfinite(ax.vec[i][j])) return false;
+        }
+    }
     for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
             if (i == j) continue;
