@@ -424,5 +424,23 @@ TEST(CubeReader, ExtraAtomFieldRejected) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// A fractional atom count (e.g. 1.25) must be rejected, not read as int 1 with
+// the ".25" suffix spliced into the first origin value.
+TEST(CubeReader, FractionalAtomCountRejected) {
+    oeio::builtin::CubeMolSource src(data_path("fractional_atom_count.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+// A fractional voxel count (e.g. 2.5) must be rejected, not read as int 2 with
+// the ".5" suffix spliced into the first axis-vector value.
+TEST(CubeReader, FractionalVoxelCountRejected) {
+    oeio::builtin::CubeMolSource src(data_path("fractional_voxel_count.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio

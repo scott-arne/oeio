@@ -10,6 +10,7 @@
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -83,6 +84,41 @@ long checked_abs(long value, const char* what) {
     return std::labs(value);
 }
 
+/// Extract a whole integer token from a record line as a long. Reading an int
+/// count with `operator>>` accepts an integer prefix and leaves any suffix
+/// behind, so a token like "1.25" would parse as 1 and let ".25" splice into
+/// the following double field. Pull the next whitespace-delimited token and
+/// require it to be an optional sign followed by digits only, then range-check
+/// the conversion, so a malformed count is rejected rather than silently split.
+long parse_int_token(std::istream& line, const char* what) {
+    std::string tok;
+    if (!(line >> tok)) {
+        throw FormatError(std::string("oeio: CUBE: missing ") + what);
+    }
+    std::size_t i = 0;
+    if (i < tok.size() && (tok[i] == '+' || tok[i] == '-')) ++i;
+    if (i == tok.size()) {  // sign with no digits
+        throw FormatError(std::string("oeio: CUBE: malformed ") + what);
+    }
+    for (std::size_t j = i; j < tok.size(); ++j) {
+        if (tok[j] < '0' || tok[j] > '9') {
+            throw FormatError(std::string("oeio: CUBE: malformed ") + what);
+        }
+    }
+    try {
+        std::size_t consumed = 0;
+        const long value = std::stol(tok, &consumed);
+        if (consumed != tok.size()) {
+            throw FormatError(std::string("oeio: CUBE: malformed ") + what);
+        }
+        return value;
+    } catch (const std::out_of_range&) {
+        throw FormatError(std::string("oeio: CUBE: ") + what + " out of range");
+    } catch (const std::invalid_argument&) {
+        throw FormatError(std::string("oeio: CUBE: malformed ") + what);
+    }
+}
+
 /// Narrow an untrusted double to float, rejecting values that are non-finite or
 /// whose magnitude exceeds the float range. A finite double such as 1e308 passes
 /// an isfinite() check yet becomes +/-inf once cast to float; validating after
@@ -142,10 +178,7 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
 
     // Line 3: atom count + origin (a single fixed record line).
     std::istringstream atom_count_line = next_record_line(in, "atom count line");
-    long natom_raw = 0;
-    if (!(atom_count_line >> natom_raw)) {
-        throw FormatError("oeio: CUBE: missing atom count");
-    }
+    const long natom_raw = parse_int_token(atom_count_line, "atom count");
     const bool mo_cube = natom_raw < 0;
     const long natom = checked_abs(natom_raw, "atom count");
     if (natom > MAX_ATOM_COUNT) {
@@ -164,8 +197,7 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     for (int i = 0; i < 3; ++i) {
         // Each voxel count + axis vector is a single fixed record line.
         std::istringstream axis_line = next_record_line(in, "voxel count line");
-        long nv = 0;
-        if (!(axis_line >> nv)) throw FormatError("oeio: CUBE: missing voxel count");
+        const long nv = parse_int_token(axis_line, "voxel count");
         if (nv < 0) angstrom = true;   // negative voxel count -> Angstrom
         const long nv_abs = checked_abs(nv, "voxel count");
         if (nv_abs < 1 || nv_abs > MAX_VOXELS_PER_DIM) {
@@ -223,8 +255,7 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     // MO cube: extra header line "M id1 id2 ... idM".
     int ngrid = 1;
     if (mo_cube) {
-        long m = 0;
-        if (!(in >> m)) throw FormatError("oeio: CUBE: missing orbital count");
+        const long m = parse_int_token(in, "orbital count");
         if (m < 1 || m > MAX_ORBITAL_COUNT) {
             throw FormatError("oeio: CUBE: orbital count must be in [1, " +
                               std::to_string(MAX_ORBITAL_COUNT) + "]");
