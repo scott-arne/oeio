@@ -30,6 +30,10 @@ constexpr std::size_t MAX_TOTAL_ELEMENTS = MAX_TOTAL_BYTES / sizeof(float);
 /// Maximum orbital count for MO cubes; prevents huge grid arrays.
 constexpr int MAX_ORBITAL_COUNT = 1024;
 
+/// Highest supported atomic number (Oganesson, Z=118). Atom records outside
+/// [1, MAX_ATOMIC_NUMBER] are rejected before reaching OpenEye.
+constexpr int MAX_ATOMIC_NUMBER = 118;
+
 /// Read the next whitespace-delimited token stream line, throwing on failure.
 std::vector<double> parse_doubles(std::istream& in, int count, const char* what) {
     std::vector<double> out;
@@ -125,7 +129,25 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     // Atoms: atomic number, charge, x, y, z. Build the molecule (coords in A).
     for (long a = 0; a < natom; ++a) {
         auto atom_line = parse_doubles(in, 5, "atom line");
-        OEChem::OEAtomBase* atom = mol.NewAtom(static_cast<unsigned int>(atom_line[0]));
+        // The atomic number streams in as a double; validate it is a finite,
+        // integral value in the supported element range before the narrowing
+        // cast. A negative/NaN/Inf/out-of-range value would otherwise invoke
+        // undefined float-to-unsigned conversion or hand OpenEye a bogus element.
+        const double z = atom_line[0];
+        if (!std::isfinite(z) || z < 1.0 || z > static_cast<double>(MAX_ATOMIC_NUMBER) ||
+            z != std::floor(z)) {
+            throw FormatError("oeio: CUBE: atomic number out of range [1, " +
+                              std::to_string(MAX_ATOMIC_NUMBER) + "]");
+        }
+        // Coordinates must be finite; NaN/Inf would corrupt the molecule geometry.
+        if (!std::isfinite(atom_line[2]) || !std::isfinite(atom_line[3]) ||
+            !std::isfinite(atom_line[4])) {
+            throw FormatError("oeio: CUBE: non-finite atom coordinate");
+        }
+        OEChem::OEAtomBase* atom = mol.NewAtom(static_cast<unsigned int>(z));
+        if (!atom) {
+            throw FormatError("oeio: CUBE: failed to create atom");
+        }
         const float coords[3] = {
             static_cast<float>(atom_line[2] * to_ang),
             static_cast<float>(atom_line[3] * to_ang),

@@ -338,5 +338,22 @@ TEST(CubeReader, BoundaryHeaderTruncatedFailsFast) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// A negative (or otherwise out-of-range) atomic number must be rejected with a
+// FormatError before the narrowing float-to-unsigned cast reaches OpenEye.
+TEST(CubeReader, BadAtomicNumberRejected) {
+    oeio::builtin::CubeMolSource src(data_path("bad_atomic_number.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+// A non-finite atom coordinate must be rejected rather than corrupting geometry.
+TEST(CubeReader, NonFiniteCoordRejected) {
+    oeio::builtin::CubeMolSource src(data_path("nonfinite_coord.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio
