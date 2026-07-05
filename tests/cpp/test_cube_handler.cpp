@@ -372,5 +372,38 @@ TEST(CubeReader, LongMinVoxelCountRejected) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// A non-finite origin coordinate must be rejected before it reaches the grid.
+TEST(CubeReader, NonFiniteOriginRejected) {
+    oeio::builtin::CubeMolSource src(data_path("nonfinite_origin.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+// A coordinate finite as a double (1e308) but overflowing the float range must
+// be rejected rather than silently becoming +/-inf after the narrowing cast.
+TEST(CubeReader, OverflowCoordRejected) {
+    oeio::builtin::CubeMolSource src(data_path("overflow_coord.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+// A non-finite volumetric value (inf/nan) must be rejected as corrupt data.
+TEST(CubeReader, NonFiniteVolumetricValueRejected) {
+    oeio::builtin::CubeMolSource src(data_path("nonfinite_value.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+// A file that ends before the two required comment lines must fail cleanly.
+TEST(CubeReader, TruncatedHeaderRejected) {
+    oeio::builtin::CubeMolSource src(data_path("comment_only.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio

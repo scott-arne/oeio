@@ -9,7 +9,6 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
-#include <sstream>
 #include <vector>
 
 namespace oeio {
@@ -63,6 +62,20 @@ long checked_abs(long value, const char* what) {
     }
     return std::labs(value);
 }
+
+/// Narrow an untrusted double to float, rejecting values that are non-finite or
+/// whose magnitude exceeds the float range. A finite double such as 1e308 passes
+/// an isfinite() check yet becomes +/-inf once cast to float; validating after
+/// unit conversion at the single point where the value is narrowed prevents a
+/// non-finite coordinate/geometry value from reaching OpenEye or OEScalarGrid.
+float to_finite_float(double value, const char* what) {
+    if (!std::isfinite(value) ||
+        std::fabs(value) > static_cast<double>(std::numeric_limits<float>::max())) {
+        throw FormatError(std::string("oeio: CUBE: ") + what +
+                          " is non-finite or out of range");
+    }
+    return static_cast<float>(value);
+}
 }  // namespace
 
 CubeMolSource::CubeMolSource(const std::string& path) : path_(path) {}
@@ -103,8 +116,9 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     }
 
     std::string comment1, comment2;
-    std::getline(in, comment1);
-    std::getline(in, comment2);
+    if (!std::getline(in, comment1) || !std::getline(in, comment2)) {
+        throw FormatError("oeio: CUBE: truncated header (missing comment lines)");
+    }
 
     // Line 3: atom count + origin.
     long natom_raw = 0;
@@ -116,6 +130,9 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
                           std::to_string(MAX_ATOM_COUNT) + ")");
     }
     auto origin = parse_doubles(in, 3, "origin");
+    for (double o : origin) {
+        if (!std::isfinite(o)) throw FormatError("oeio: CUBE: non-finite origin");
+    }
 
     // Lines 4-6: voxel counts + axis vectors.
     cube::CubeAxes ax{};
@@ -159,20 +176,19 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
             throw FormatError("oeio: CUBE: atomic number out of range [1, " +
                               std::to_string(MAX_ATOMIC_NUMBER) + "]");
         }
-        // Coordinates must be finite; NaN/Inf would corrupt the molecule geometry.
-        if (!std::isfinite(atom_line[2]) || !std::isfinite(atom_line[3]) ||
-            !std::isfinite(atom_line[4])) {
-            throw FormatError("oeio: CUBE: non-finite atom coordinate");
-        }
+        // Convert to Angstrom and narrow to float, rejecting values that are
+        // non-finite or overflow the float range (a finite double like 1e308
+        // becomes +/-inf once cast). Validating the converted value guards the
+        // coordinate that actually reaches the molecule.
+        const float coords[3] = {
+            to_finite_float(atom_line[2] * to_ang, "atom coordinate"),
+            to_finite_float(atom_line[3] * to_ang, "atom coordinate"),
+            to_finite_float(atom_line[4] * to_ang, "atom coordinate")
+        };
         OEChem::OEAtomBase* atom = mol.NewAtom(static_cast<unsigned int>(z));
         if (!atom) {
             throw FormatError("oeio: CUBE: failed to create atom");
         }
-        const float coords[3] = {
-            static_cast<float>(atom_line[2] * to_ang),
-            static_cast<float>(atom_line[3] * to_ang),
-            static_cast<float>(atom_line[4] * to_ang)
-        };
         mol.SetCoords(atom, coords);
     }
 
@@ -229,19 +245,29 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
             if (!(in >> val)) {
                 throw FormatError("oeio: CUBE: truncated volumetric block");
             }
-            buffers[g].push_back(static_cast<float>(val));
+            // Physical density/orbital values are finite; reject NaN/Inf (which
+            // stream as valid doubles) rather than storing corrupt grid data.
+            buffers[g].push_back(to_finite_float(val, "volumetric value"));
         }
     }
 
     // Materialize each grid, releasing its source buffer immediately afterwards so
     // peak memory stays near a single grid's worth rather than all buffers plus
     // all grids at once.
+    // Narrow the geometry to float once, rejecting values that overflow the
+    // float range after unit conversion, so the grid never receives a non-finite
+    // midpoint or spacing.
+    const float mid_f[3] = {
+        to_finite_float(mid[0], "grid midpoint"),
+        to_finite_float(mid[1], "grid midpoint"),
+        to_finite_float(mid[2], "grid midpoint")
+    };
+    const float spacing_f = to_finite_float(spacing_ang, "grid spacing");
     grids.reserve(ngrid);
     for (int g = 0; g < ngrid; ++g) {
         OESystem::OEScalarGrid grid(
             ax.nvox[0], ax.nvox[1], ax.nvox[2],
-            static_cast<float>(mid[0]), static_cast<float>(mid[1]),
-            static_cast<float>(mid[2]), static_cast<float>(spacing_ang));
+            mid_f[0], mid_f[1], mid_f[2], spacing_f);
         grid.SetValues(buffers[g].data(), static_cast<unsigned int>(voxels));
         grids.push_back(grid);
         std::vector<float>().swap(buffers[g]);  // release source buffer
