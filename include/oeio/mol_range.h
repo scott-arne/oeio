@@ -7,8 +7,11 @@
 #include <iterator>
 #include <memory>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 #include <oechem.h>
+#include <oegrid.h>
 
 #include "oeio/format_handler.h"
 
@@ -16,6 +19,7 @@ namespace oeio {
 
 template <typename T>
 class TypedMolRange;
+class GridMolRange;
 
 /// \brief A range representing a stream of molecules.
 ///
@@ -88,6 +92,29 @@ public:
     /// \param mol The molecule to populate.
     /// \returns true if a molecule was read, false if the source is exhausted or null.
     bool read_into(OEChem::OEMolBase& mol);
+
+    /// \brief Read the next molecule and up to grids.size() caller-owned grids.
+    ///
+    /// Distinct from read_into(mol): this fills grids alongside the molecule.
+    /// Fills min(grids.size(), N) grids; leaves extras untouched; skips surplus
+    /// file grids. \param num_grids (if non-null) receives N, the file's grid
+    /// count for this record.
+    ///
+    /// \returns true while records remain, false at end-of-stream (same
+    /// truthiness as read_into(mol), so `while (read_into(mol, grids, &n))`
+    /// terminates correctly).
+    bool read_into(OEChem::OEMolBase& mol,
+                   const std::vector<OESystem::OEScalarGrid*>& grids,
+                   int* num_grids = nullptr);
+
+    /// \brief Return a view that yields (molecule, all-N-grids) per record.
+    ///
+    /// Moves the underlying MolSource into the returned view (like as<T>()).
+    /// Only valid directly on a read(...) range — filter/transform produce
+    /// molecule-only ranges that report N=0.
+    ///
+    /// \returns A GridMolRange over the moved source.
+    GridMolRange with_grids();
 
     /// \brief Return a typed view that yields molecules of type T.
     ///
@@ -175,5 +202,60 @@ template <typename T>
 TypedMolRange<T> MolRange::as() {
     return TypedMolRange<T>(release_source());
 }
+
+/// \brief A view over a MolSource that yields (molecule, grids) per record.
+///
+/// The iterator calls MolSource::next(mol, grids) — the owned-grid overload —
+/// which resizes the grid vector to N and fills all N, so the view never needs
+/// to know N in advance.
+class GridMolRange {
+public:
+    using Value = std::pair<OEChem::OEMol, std::vector<OESystem::OEScalarGrid>>;
+
+    explicit GridMolRange(std::unique_ptr<MolSource> source)
+        : source_(std::move(source)) {}
+
+    GridMolRange(GridMolRange&&) noexcept = default;
+    GridMolRange& operator=(GridMolRange&&) noexcept = default;
+    GridMolRange(const GridMolRange&) = delete;
+    GridMolRange& operator=(const GridMolRange&) = delete;
+
+    struct Sentinel {};
+
+    class Iterator {
+    public:
+        using value_type = Value;
+        using reference = Value&;
+        using pointer = Value*;
+        using difference_type = std::ptrdiff_t;
+        using iterator_category = std::input_iterator_tag;
+
+        Iterator() = default;
+
+        reference operator*() { return value_; }
+        pointer operator->() { return &value_; }
+        Iterator& operator++() {
+            done_ = !source_ || !source_->next(value_.first, value_.second);
+            return *this;
+        }
+        bool operator==(const Sentinel&) const { return done_; }
+        bool operator!=(const Sentinel& s) const { return !(*this == s); }
+
+    private:
+        friend class GridMolRange;
+        explicit Iterator(MolSource* source) : source_(source), done_(false) {
+            ++(*this);
+        }
+        MolSource* source_ = nullptr;
+        Value value_;
+        bool done_ = true;
+    };
+
+    Iterator begin() { return Iterator(source_.get()); }
+    Sentinel end() const { return Sentinel{}; }
+
+private:
+    std::unique_ptr<MolSource> source_;
+};
 
 }  // namespace oeio

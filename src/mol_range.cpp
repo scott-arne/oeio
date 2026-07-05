@@ -27,6 +27,16 @@ bool MolRange::read_into(OEChem::OEMolBase& mol) {
     return source_ && source_->next(mol);
 }
 
+bool MolRange::read_into(OEChem::OEMolBase& mol,
+                         const std::vector<OESystem::OEScalarGrid*>& grids,
+                         int* num_grids) {
+    return source_ && source_->next(mol, grids, num_grids);
+}
+
+GridMolRange MolRange::with_grids() {
+    return GridMolRange(release_source());
+}
+
 std::unique_ptr<MolSource> MolRange::release_source() {
     return std::move(source_);
 }
