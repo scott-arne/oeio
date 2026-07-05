@@ -405,5 +405,24 @@ TEST(CubeReader, TruncatedHeaderRejected) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// An atom line with only 4 fields must be rejected, not silently completed by
+// splicing a token from the next line. The fixture supplies a compensating
+// extra volumetric value so a non-line-anchored parser would parse "success".
+TEST(CubeReader, ShortAtomLineRejected) {
+    oeio::builtin::CubeMolSource src(data_path("short_atom_line.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+// An atom line with an extra trailing field must be rejected as malformed
+// rather than silently ignored.
+TEST(CubeReader, ExtraAtomFieldRejected) {
+    oeio::builtin::CubeMolSource src(data_path("extra_atom_field.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio

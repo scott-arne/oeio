@@ -9,6 +9,8 @@
 #include <cmath>
 #include <fstream>
 #include <limits>
+#include <sstream>
+#include <string>
 #include <vector>
 
 namespace oeio {
@@ -38,16 +40,34 @@ constexpr int MAX_ATOMIC_NUMBER = 118;
 /// advertising an absurd atom count fails cleanly rather than spinning.
 constexpr long MAX_ATOM_COUNT = 100000000L;
 
-/// Read the next whitespace-delimited token stream line, throwing on failure.
-std::vector<double> parse_doubles(std::istream& in, int count, const char* what) {
+/// Read the next line of a CUBE file into a stringstream for record-anchored
+/// parsing. Fixed CUBE records occupy exactly one line each; reading a whole
+/// line first prevents a short record from silently consuming tokens that
+/// belong to the following line. Throws FormatError at end-of-file.
+std::istringstream next_record_line(std::istream& in, const char* what) {
+    std::string line;
+    if (!std::getline(in, line)) {
+        throw FormatError(std::string("oeio: CUBE: truncated file, expected ") + what);
+    }
+    return std::istringstream(line);
+}
+
+/// Parse exactly `count` doubles from a single record line, rejecting a line
+/// that has too few fields or trailing non-whitespace content. The trailing
+/// check keeps a malformed fixed record from being silently accepted.
+std::vector<double> parse_doubles(std::istringstream& line, int count, const char* what) {
     std::vector<double> out;
     out.reserve(count);
     double v;
     for (int i = 0; i < count; ++i) {
-        if (!(in >> v)) {
+        if (!(line >> v)) {
             throw FormatError(std::string("oeio: CUBE: malformed ") + what);
         }
         out.push_back(v);
+    }
+    std::string leftover;
+    if (line >> leftover) {
+        throw FormatError(std::string("oeio: CUBE: unexpected extra data on ") + what);
     }
     return out;
 }
@@ -120,16 +140,19 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
         throw FormatError("oeio: CUBE: truncated header (missing comment lines)");
     }
 
-    // Line 3: atom count + origin.
+    // Line 3: atom count + origin (a single fixed record line).
+    std::istringstream atom_count_line = next_record_line(in, "atom count line");
     long natom_raw = 0;
-    if (!(in >> natom_raw)) throw FormatError("oeio: CUBE: missing atom count");
+    if (!(atom_count_line >> natom_raw)) {
+        throw FormatError("oeio: CUBE: missing atom count");
+    }
     const bool mo_cube = natom_raw < 0;
     const long natom = checked_abs(natom_raw, "atom count");
     if (natom > MAX_ATOM_COUNT) {
         throw FormatError("oeio: CUBE: atom count exceeds limit (" +
                           std::to_string(MAX_ATOM_COUNT) + ")");
     }
-    auto origin = parse_doubles(in, 3, "origin");
+    auto origin = parse_doubles(atom_count_line, 3, "origin");
     for (double o : origin) {
         if (!std::isfinite(o)) throw FormatError("oeio: CUBE: non-finite origin");
     }
@@ -139,8 +162,10 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     ax.origin[0] = origin[0]; ax.origin[1] = origin[1]; ax.origin[2] = origin[2];
     bool angstrom = false;
     for (int i = 0; i < 3; ++i) {
+        // Each voxel count + axis vector is a single fixed record line.
+        std::istringstream axis_line = next_record_line(in, "voxel count line");
         long nv = 0;
-        if (!(in >> nv)) throw FormatError("oeio: CUBE: missing voxel count");
+        if (!(axis_line >> nv)) throw FormatError("oeio: CUBE: missing voxel count");
         if (nv < 0) angstrom = true;   // negative voxel count -> Angstrom
         const long nv_abs = checked_abs(nv, "voxel count");
         if (nv_abs < 1 || nv_abs > MAX_VOXELS_PER_DIM) {
@@ -148,7 +173,7 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
                               std::to_string(MAX_VOXELS_PER_DIM) + "]");
         }
         ax.nvox[i] = static_cast<int>(nv_abs);
-        auto row = parse_doubles(in, 3, "axis vector");
+        auto row = parse_doubles(axis_line, 3, "axis vector");
         ax.vec[i][0] = row[0]; ax.vec[i][1] = row[1]; ax.vec[i][2] = row[2];
     }
 
@@ -165,7 +190,10 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
 
     // Atoms: atomic number, charge, x, y, z. Build the molecule (coords in A).
     for (long a = 0; a < natom; ++a) {
-        auto atom_line = parse_doubles(in, 5, "atom line");
+        // Each atom is a single fixed record line; reading the whole line first
+        // prevents a short atom record from consuming a volumetric value.
+        std::istringstream atom_record = next_record_line(in, "atom line");
+        auto atom_line = parse_doubles(atom_record, 5, "atom line");
         // The atomic number streams in as a double; validate it is a finite,
         // integral value in the supported element range before the narrowing
         // cast. A negative/NaN/Inf/out-of-range value would otherwise invoke
