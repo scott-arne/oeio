@@ -302,5 +302,19 @@ TEST(CubeReader, AngstromUnitsNoBohrConversion) {
     EXPECT_NEAR(xyz[0], 1.0f, 1e-4);
 }
 
+TEST(CubeReader, ZeroVoxelCountRejected) {
+    oeio::builtin::CubeMolSource src(data_path("zero_dim.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+TEST(CubeReader, OversizedVoxelCountRejected) {
+    oeio::builtin::CubeMolSource src(data_path("oversized_dim.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio

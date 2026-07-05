@@ -17,6 +17,15 @@ namespace builtin {
 namespace {
 constexpr double AXIS_TOL = 1e-6;
 
+/// Maximum allowed voxel count per dimension; prevents absurd allocations.
+constexpr int MAX_VOXELS_PER_DIM = 8192;
+
+/// Maximum total voxel count (nx*ny*nz); must fit in unsigned int for SetValues.
+constexpr std::size_t MAX_TOTAL_VOXELS = 536870912u;  // 512 MB @ 4 bytes/float
+
+/// Maximum orbital count for MO cubes; prevents huge grid arrays.
+constexpr int MAX_ORBITAL_COUNT = 1024;
+
 /// Read the next whitespace-delimited token stream line, throwing on failure.
 std::vector<double> parse_doubles(std::istream& in, int count, const char* what) {
     std::vector<double> out;
@@ -88,7 +97,12 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
         long nv = 0;
         if (!(in >> nv)) throw FormatError("oeio: CUBE: missing voxel count");
         if (nv < 0) angstrom = true;   // negative voxel count -> Angstrom
-        ax.nvox[i] = static_cast<int>(std::labs(nv));
+        const long nv_abs = std::labs(nv);
+        if (nv_abs < 1 || nv_abs > MAX_VOXELS_PER_DIM) {
+            throw FormatError("oeio: CUBE: voxel count per dimension must be in [1, " +
+                              std::to_string(MAX_VOXELS_PER_DIM) + "]");
+        }
+        ax.nvox[i] = static_cast<int>(nv_abs);
         auto row = parse_doubles(in, 3, "axis vector");
         ax.vec[i][0] = row[0]; ax.vec[i][1] = row[1]; ax.vec[i][2] = row[2];
     }
@@ -121,12 +135,15 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     if (mo_cube) {
         long m = 0;
         if (!(in >> m)) throw FormatError("oeio: CUBE: missing orbital count");
+        if (m < 1 || m > MAX_ORBITAL_COUNT) {
+            throw FormatError("oeio: CUBE: orbital count must be in [1, " +
+                              std::to_string(MAX_ORBITAL_COUNT) + "]");
+        }
         ngrid = static_cast<int>(m);
         for (long i = 0; i < m; ++i) {
             long id;
             if (!(in >> id)) throw FormatError("oeio: CUBE: malformed orbital ids");
         }
-        if (ngrid < 1) throw FormatError("oeio: CUBE: non-positive orbital count");
     }
 
     // Grid geometry in Angstrom.
@@ -138,6 +155,16 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
 
     const std::size_t voxels =
         static_cast<std::size_t>(ax.nvox[0]) * ax.nvox[1] * ax.nvox[2];
+
+    // Validate total voxel count to prevent overflow and absurd allocations.
+    if (voxels > MAX_TOTAL_VOXELS) {
+        throw FormatError("oeio: CUBE: total voxel count (" + std::to_string(voxels) +
+                          ") exceeds limit (" + std::to_string(MAX_TOTAL_VOXELS) + ")");
+    }
+    // Check that total element count (voxels * ngrid) won't overflow.
+    if (ngrid > 1 && voxels > MAX_TOTAL_VOXELS / static_cast<std::size_t>(ngrid)) {
+        throw FormatError("oeio: CUBE: total grid element count would overflow");
+    }
 
     // Allocate N grids, each nx*ny*nz.
     grids.reserve(ngrid);
