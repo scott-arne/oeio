@@ -2,6 +2,7 @@
 
 #include "oeio/format_handler.h"
 #include "oeio/mol_range.h"
+#include "oeio/write.h"
 
 #include <oechem.h>
 #include <oegrid.h>
@@ -110,6 +111,32 @@ TEST(MolRangeGrids, WithGridsYieldsAllN) {
         EXPECT_FLOAT_EQ(*grids[1].GetValues(), 20.0f);
     }
     EXPECT_EQ(rows, 1);
+}
+
+// A sink that records whether the grid write overload was called and with how
+// many grids.
+class RecordingSink : public MolSink {
+public:
+    bool write(const OEChem::OEMolBase&) override { mol_writes++; return true; }
+    bool write(const OEChem::OEMolBase&,
+               const std::vector<const OESystem::OEScalarGrid*>& grids) override {
+        last_grid_count = static_cast<int>(grids.size());
+        return true;
+    }
+    void close() override {}
+    int mol_writes = 0;
+    int last_grid_count = -1;
+};
+
+TEST(WriterGrids, AppendForwardsGrids) {
+    auto sink = std::make_unique<RecordingSink>();
+    RecordingSink* raw = sink.get();
+    Writer writer(std::move(sink));
+    OEChem::OEMol mol;
+    OESystem::OEScalarGrid g0, g1;
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g0, &g1 };
+    EXPECT_TRUE(writer.append(mol, grids));
+    EXPECT_EQ(raw->last_grid_count, 2);
 }
 
 }  // namespace test

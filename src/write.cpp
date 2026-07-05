@@ -25,6 +25,11 @@ bool Writer::append(const OEChem::OEMolBase& mol) {
     return sink_ ? sink_->write(mol) : false;
 }
 
+bool Writer::append(const OEChem::OEMolBase& mol,
+                    const std::vector<const OESystem::OEScalarGrid*>& grids) {
+    return sink_ ? sink_->write(mol, grids) : false;
+}
+
 void Writer::close() {
     if (sink_) {
         sink_->close();

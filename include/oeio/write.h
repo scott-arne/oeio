@@ -6,8 +6,10 @@
 #include <any>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <oechem.h>
+#include <oegrid.h>
 
 #include "oeio/format_handler.h"
 #include "oeio/format_registry.h"
@@ -41,6 +43,19 @@ public:
     /// \param mol The molecule to write.
     /// \returns true if the molecule was successfully written, false on error.
     bool append(const OEChem::OEMolBase& mol);
+
+    /// \brief Write a molecule plus grids to the file.
+    ///
+    /// Forwards to the sink's grid overload. Returns false if the underlying
+    /// format does not support grids (the default MolSink rejects non-empty
+    /// grid lists); grid-capable sinks such as the CUBE handler perform the
+    /// write or raise FormatError on invalid input.
+    ///
+    /// \param mol The molecule to write.
+    /// \param grids The grids to write alongside the molecule.
+    /// \returns true on success, false otherwise.
+    bool append(const OEChem::OEMolBase& mol,
+                const std::vector<const OESystem::OEScalarGrid*>& grids);
 
     /// \brief Close the writer and flush buffered data.
     void close();
