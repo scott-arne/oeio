@@ -12,6 +12,7 @@ add_executable(oeio_tests
     test_registry.cpp
     test_extension_matching.cpp
     test_oechem_handler.cpp
+    test_cube_handler.cpp
     test_mol_range.cpp
     test_pipeline.cpp
     test_exceptions.cpp

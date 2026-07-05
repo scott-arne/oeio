@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <oechem.h>
+#include <oegrid.h>
 #include <oeplatform.h>
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -71,6 +72,41 @@ public:
         OEChem::OECopyMol(mol, temp);
         return true;
     }
+
+    /// \brief Read the next molecule and up to grids.size() scalar grids
+    /// (caller-owned, by-reference).
+    ///
+    /// \param mol The molecule to populate.
+    /// \param grids Caller-owned grids to fill; min(grids.size(), N) are filled.
+    /// \param num_grids If non-null, receives N (the record's grid count).
+    /// \returns true if a record was read, false at end-of-stream.
+    ///
+    /// Default reads the molecule only and reports N=0, so non-grid handlers
+    /// ignore grids for free.
+    virtual bool next(OEChem::OEMolBase& mol,
+                      const std::vector<OESystem::OEScalarGrid*>& grids,
+                      int* num_grids = nullptr) {
+        (void)grids;
+        if (!next(mol)) return false;   // EOF: return false, do NOT touch *num_grids
+        if (num_grids) *num_grids = 0;  // success: molecule only, N=0
+        return true;
+    }
+
+    /// \brief Read the next molecule and all N scalar grids into an
+    /// owned vector (resized to N).
+    ///
+    /// Used by the grid iterator view, which does not know N in advance.
+    ///
+    /// \param mol The molecule to populate.
+    /// \param grids Resized to N and filled with the record's grids.
+    /// \returns true if a record was read, false at end-of-stream.
+    ///
+    /// Default reads the molecule only and clears grids (N=0).
+    virtual bool next(OEChem::OEMolBase& mol,
+                      std::vector<OESystem::OEScalarGrid>& grids) {
+        grids.clear();
+        return next(mol);
+    }
 };
 
 /// \brief Abstract base class for writing molecules to a destination.
@@ -85,6 +121,19 @@ public:
     /// \param mol The molecule to write.
     /// \returns true if the molecule was successfully written, false on error.
     virtual bool write(const OEChem::OEMolBase& mol) = 0;
+
+    /// \brief Write a molecule plus grids.
+    ///
+    /// Default rejects a non-empty grid list (format has no grid support) and
+    /// delegates to the molecule-only write when grids is empty.
+    ///
+    /// \param mol The molecule to write.
+    /// \param grids The grids to write alongside the molecule.
+    /// \returns true on success, false otherwise.
+    virtual bool write(const OEChem::OEMolBase& mol,
+                       const std::vector<const OESystem::OEScalarGrid*>& grids) {
+        return grids.empty() ? write(mol) : false;
+    }
 
     /// \brief Close the sink and flush any buffered data.
     virtual void close() = 0;
