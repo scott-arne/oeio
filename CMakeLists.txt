@@ -58,6 +58,7 @@ set(OEIO_SOURCES
     src/read.cpp
     src/write.cpp
     src/pipeline.cpp
+    src/cube_grid.cpp
 )
 
 add_library(oeio ${OEIO_SOURCES})

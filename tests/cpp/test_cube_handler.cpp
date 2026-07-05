@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "oeio/cube_grid.h"
 #include "oeio/format_handler.h"
 #include "oeio/mol_range.h"
 #include "oeio/write.h"
@@ -137,6 +138,57 @@ TEST(WriterGrids, AppendForwardsGrids) {
     std::vector<const OESystem::OEScalarGrid*> grids = { &g0, &g1 };
     EXPECT_TRUE(writer.append(mol, grids));
     EXPECT_EQ(raw->last_grid_count, 2);
+}
+
+TEST(CubeGrid, AxisAlignedUniformAccepted) {
+    oeio::cube::CubeAxes ax{};
+    ax.nvox[0] = ax.nvox[1] = ax.nvox[2] = 3;
+    ax.vec[0][0] = 0.5; ax.vec[1][1] = 0.5; ax.vec[2][2] = 0.5;  // cubic, positive
+    double spacing = 0.0;
+    EXPECT_TRUE(oeio::cube::is_axis_aligned_uniform(ax, 1e-6, spacing));
+    EXPECT_DOUBLE_EQ(spacing, 0.5);
+}
+
+TEST(CubeGrid, SkewedRejected) {
+    oeio::cube::CubeAxes ax{};
+    ax.nvox[0] = ax.nvox[1] = ax.nvox[2] = 3;
+    ax.vec[0][0] = 0.5; ax.vec[0][1] = 0.1;  // off-diagonal -> skew
+    ax.vec[1][1] = 0.5; ax.vec[2][2] = 0.5;
+    double spacing = 0.0;
+    EXPECT_FALSE(oeio::cube::is_axis_aligned_uniform(ax, 1e-6, spacing));
+}
+
+TEST(CubeGrid, AnisotropicRejected) {
+    oeio::cube::CubeAxes ax{};
+    ax.nvox[0] = ax.nvox[1] = ax.nvox[2] = 3;
+    ax.vec[0][0] = 0.5; ax.vec[1][1] = 0.6; ax.vec[2][2] = 0.5;  // unequal
+    double spacing = 0.0;
+    EXPECT_FALSE(oeio::cube::is_axis_aligned_uniform(ax, 1e-6, spacing));
+}
+
+TEST(CubeGrid, ReflectedRejected) {
+    oeio::cube::CubeAxes ax{};
+    ax.nvox[0] = ax.nvox[1] = ax.nvox[2] = 3;
+    ax.vec[0][0] = -0.5;  // negative diagonal -> reflected
+    ax.vec[1][1] = 0.5; ax.vec[2][2] = 0.5;
+    double spacing = 0.0;
+    EXPECT_FALSE(oeio::cube::is_axis_aligned_uniform(ax, 1e-6, spacing));
+}
+
+TEST(CubeGrid, OriginMidpointRoundTrip) {
+    double origin[3] = { 1.0, 2.0, 3.0 };
+    int nvox[3] = { 3, 5, 7 };
+    double spacing = 0.5;
+    double mid[3], origin_back[3];
+    oeio::cube::origin_to_mid(origin, nvox, spacing, mid);
+    // mid = origin + s*((n-1)/2)
+    EXPECT_DOUBLE_EQ(mid[0], 1.0 + 0.5 * 1.0);  // (3-1)/2 = 1
+    EXPECT_DOUBLE_EQ(mid[1], 2.0 + 0.5 * 2.0);  // (5-1)/2 = 2
+    EXPECT_DOUBLE_EQ(mid[2], 3.0 + 0.5 * 3.0);  // (7-1)/2 = 3
+    oeio::cube::mid_to_origin(mid, nvox, spacing, origin_back);
+    EXPECT_DOUBLE_EQ(origin_back[0], origin[0]);
+    EXPECT_DOUBLE_EQ(origin_back[1], origin[1]);
+    EXPECT_DOUBLE_EQ(origin_back[2], origin[2]);
 }
 
 }  // namespace test
