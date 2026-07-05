@@ -355,5 +355,22 @@ TEST(CubeReader, NonFiniteCoordRejected) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// LONG_MIN as the atom count must be rejected as FormatError, never passed to
+// std::labs (which is undefined behavior for LONG_MIN).
+TEST(CubeReader, LongMinAtomCountRejected) {
+    oeio::builtin::CubeMolSource src(data_path("longmin_atom_count.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+// LONG_MIN as a voxel count must be rejected as FormatError before std::labs.
+TEST(CubeReader, LongMinVoxelCountRejected) {
+    oeio::builtin::CubeMolSource src(data_path("longmin_voxel_count.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio

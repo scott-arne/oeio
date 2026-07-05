@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -34,6 +35,10 @@ constexpr int MAX_ORBITAL_COUNT = 1024;
 /// [1, MAX_ATOMIC_NUMBER] are rejected before reaching OpenEye.
 constexpr int MAX_ATOMIC_NUMBER = 118;
 
+/// Maximum atom count. Bounds the atom-parsing loop so a malformed header
+/// advertising an absurd atom count fails cleanly rather than spinning.
+constexpr long MAX_ATOM_COUNT = 100000000L;
+
 /// Read the next whitespace-delimited token stream line, throwing on failure.
 std::vector<double> parse_doubles(std::istream& in, int count, const char* what) {
     std::vector<double> out;
@@ -46,6 +51,17 @@ std::vector<double> parse_doubles(std::istream& in, int count, const char* what)
         out.push_back(v);
     }
     return out;
+}
+
+/// Absolute value of an untrusted signed count, guarding the one input whose
+/// magnitude is not representable. std::labs(LONG_MIN) is undefined behavior
+/// because -LONG_MIN overflows; reject that value (and anything that streamed
+/// as it) as malformed before taking the magnitude.
+long checked_abs(long value, const char* what) {
+    if (value == std::numeric_limits<long>::min()) {
+        throw FormatError(std::string("oeio: CUBE: ") + what + " out of range");
+    }
+    return std::labs(value);
 }
 }  // namespace
 
@@ -94,7 +110,11 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     long natom_raw = 0;
     if (!(in >> natom_raw)) throw FormatError("oeio: CUBE: missing atom count");
     const bool mo_cube = natom_raw < 0;
-    const long natom = std::labs(natom_raw);
+    const long natom = checked_abs(natom_raw, "atom count");
+    if (natom > MAX_ATOM_COUNT) {
+        throw FormatError("oeio: CUBE: atom count exceeds limit (" +
+                          std::to_string(MAX_ATOM_COUNT) + ")");
+    }
     auto origin = parse_doubles(in, 3, "origin");
 
     // Lines 4-6: voxel counts + axis vectors.
@@ -105,7 +125,7 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
         long nv = 0;
         if (!(in >> nv)) throw FormatError("oeio: CUBE: missing voxel count");
         if (nv < 0) angstrom = true;   // negative voxel count -> Angstrom
-        const long nv_abs = std::labs(nv);
+        const long nv_abs = checked_abs(nv, "voxel count");
         if (nv_abs < 1 || nv_abs > MAX_VOXELS_PER_DIM) {
             throw FormatError("oeio: CUBE: voxel count per dimension must be in [1, " +
                               std::to_string(MAX_VOXELS_PER_DIM) + "]");
