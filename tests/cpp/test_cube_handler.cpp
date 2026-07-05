@@ -327,5 +327,16 @@ TEST(CubeReader, OversizedTotalVoxelCountRejected) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// A header at exactly the accepted maximum element count (8192*8192*2 ==
+// MAX_TOTAL_ELEMENTS) passes the ceiling, but the file supplies no volumetric
+// data. Because buffers grow only as values are consumed, this must fail fast
+// with a truncated-block FormatError without pre-allocating the full grid.
+TEST(CubeReader, BoundaryHeaderTruncatedFailsFast) {
+    oeio::builtin::CubeMolSource src(data_path("boundary_truncated.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio

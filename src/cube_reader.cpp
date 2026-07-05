@@ -160,11 +160,12 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     const std::size_t voxels =
         static_cast<std::size_t>(ax.nvox[0]) * ax.nvox[1] * ax.nvox[2];
 
-    // Bound the total element count (voxels * ngrid) by the byte ceiling before
-    // allocating. The division form is overflow-safe: ngrid is already >= 1, so
-    // the divisor is nonzero, and no multiplication is evaluated. Rejecting here
-    // guarantees voxels <= MAX_TOTAL_ELEMENTS < UINT_MAX, so the SetValues()
-    // length cast below cannot truncate.
+    // Bound the total element count (voxels * ngrid) that a well-formed file may
+    // request. The division form is overflow-safe: ngrid is already >= 1, so the
+    // divisor is nonzero and no multiplication is evaluated. The comparison is
+    // strict so a legitimate maximum grid (e.g. 512^3 == MAX_TOTAL_ELEMENTS) is
+    // accepted. This ceiling also guarantees voxels <= MAX_TOTAL_ELEMENTS <
+    // UINT_MAX, so the SetValues() length cast below cannot truncate.
     if (voxels > MAX_TOTAL_ELEMENTS / static_cast<std::size_t>(ngrid)) {
         throw FormatError("oeio: CUBE: total grid element count (" +
                           std::to_string(voxels) + " x " + std::to_string(ngrid) +
@@ -172,21 +173,28 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
                           " floats)");
     }
 
-    // Allocate N grids, each nx*ny*nz.
-    grids.reserve(ngrid);
-    std::vector<std::vector<float>> buffers(ngrid, std::vector<float>(voxels));
-
-    // Volumetric block: voxels*ngrid values, orbital-fastest then z,y,x.
+    // Read the volumetric block, growing per-grid buffers as values are actually
+    // consumed. We deliberately do NOT pre-size to the header-declared voxel
+    // count: a malformed or truncated file that advertises large dimensions but
+    // supplies little or no data must fail fast, allocating only in proportion to
+    // the bytes it genuinely contains rather than to the untrusted length prefix.
+    // The MAX_TOTAL_ELEMENTS ceiling above still bounds a well-formed oversized
+    // file. Values are interleaved orbital-fastest, then z, y, x.
+    std::vector<std::vector<float>> buffers(ngrid);  // ngrid empty buffers
     for (std::size_t vx = 0; vx < voxels; ++vx) {
         for (int g = 0; g < ngrid; ++g) {
             double val;
             if (!(in >> val)) {
                 throw FormatError("oeio: CUBE: truncated volumetric block");
             }
-            buffers[g][vx] = static_cast<float>(val);
+            buffers[g].push_back(static_cast<float>(val));
         }
     }
 
+    // Materialize each grid, releasing its source buffer immediately afterwards so
+    // peak memory stays near a single grid's worth rather than all buffers plus
+    // all grids at once.
+    grids.reserve(ngrid);
     for (int g = 0; g < ngrid; ++g) {
         OESystem::OEScalarGrid grid(
             ax.nvox[0], ax.nvox[1], ax.nvox[2],
@@ -194,6 +202,7 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
             static_cast<float>(mid[2]), static_cast<float>(spacing_ang));
         grid.SetValues(buffers[g].data(), static_cast<unsigned int>(voxels));
         grids.push_back(grid);
+        std::vector<float>().swap(buffers[g]);  // release source buffer
     }
 
     return true;
