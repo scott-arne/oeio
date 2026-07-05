@@ -20,8 +20,12 @@ constexpr double AXIS_TOL = 1e-6;
 /// Maximum allowed voxel count per dimension; prevents absurd allocations.
 constexpr int MAX_VOXELS_PER_DIM = 8192;
 
-/// Maximum total voxel count (nx*ny*nz); must fit in unsigned int for SetValues.
-constexpr std::size_t MAX_TOTAL_VOXELS = 536870912u;  // 512 MB @ 4 bytes/float
+/// Maximum total bytes across all grid buffers. Bounds the whole allocation by
+/// memory footprint so a small malformed header cannot force a multi-gigabyte
+/// reservation before any volumetric data is read. The derived element ceiling
+/// stays well below UINT_MAX, so SetValues() lengths never truncate.
+constexpr std::size_t MAX_TOTAL_BYTES = 512u * 1024u * 1024u;  // 512 MiB
+constexpr std::size_t MAX_TOTAL_ELEMENTS = MAX_TOTAL_BYTES / sizeof(float);
 
 /// Maximum orbital count for MO cubes; prevents huge grid arrays.
 constexpr int MAX_ORBITAL_COUNT = 1024;
@@ -156,14 +160,16 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     const std::size_t voxels =
         static_cast<std::size_t>(ax.nvox[0]) * ax.nvox[1] * ax.nvox[2];
 
-    // Validate total voxel count to prevent overflow and absurd allocations.
-    if (voxels > MAX_TOTAL_VOXELS) {
-        throw FormatError("oeio: CUBE: total voxel count (" + std::to_string(voxels) +
-                          ") exceeds limit (" + std::to_string(MAX_TOTAL_VOXELS) + ")");
-    }
-    // Check that total element count (voxels * ngrid) won't overflow.
-    if (ngrid > 1 && voxels > MAX_TOTAL_VOXELS / static_cast<std::size_t>(ngrid)) {
-        throw FormatError("oeio: CUBE: total grid element count would overflow");
+    // Bound the total element count (voxels * ngrid) by the byte ceiling before
+    // allocating. The division form is overflow-safe: ngrid is already >= 1, so
+    // the divisor is nonzero, and no multiplication is evaluated. Rejecting here
+    // guarantees voxels <= MAX_TOTAL_ELEMENTS < UINT_MAX, so the SetValues()
+    // length cast below cannot truncate.
+    if (voxels > MAX_TOTAL_ELEMENTS / static_cast<std::size_t>(ngrid)) {
+        throw FormatError("oeio: CUBE: total grid element count (" +
+                          std::to_string(voxels) + " x " + std::to_string(ngrid) +
+                          ") exceeds limit (" + std::to_string(MAX_TOTAL_ELEMENTS) +
+                          " floats)");
     }
 
     // Allocate N grids, each nx*ny*nz.

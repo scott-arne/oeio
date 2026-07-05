@@ -316,5 +316,16 @@ TEST(CubeReader, OversizedVoxelCountRejected) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// Each dimension is within the per-dimension cap (<= 8192), but their product
+// exceeds the total-element ceiling. This exercises the total guard, not the
+// per-dimension guard, and must throw before any buffer is allocated. The file
+// deliberately has no volumetric data, so reaching allocation would hang/OOM.
+TEST(CubeReader, OversizedTotalVoxelCountRejected) {
+    oeio::builtin::CubeMolSource src(data_path("oversized_total.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 }  // namespace test
 }  // namespace oeio
