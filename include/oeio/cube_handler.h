@@ -3,6 +3,7 @@
 /// \file cube_handler.h
 /// \brief Built-in Gaussian CUBE format handler.
 
+#include <any>
 #include <memory>
 #include <string>
 #include <vector>
@@ -53,6 +54,16 @@ public:
 private:
     std::string path_;
     bool written_ = false;  // CUBE holds exactly one record; reject a second write
+};
+
+/// \brief FormatHandler for Gaussian CUBE files.
+class CubeHandler : public FormatHandler {
+public:
+    FormatInfo info() const override;
+    std::unique_ptr<MolSource> make_reader(const std::string& path,
+                                           const std::any& config) const override;
+    std::unique_ptr<MolSink> make_writer(const std::string& path,
+                                         const std::any& config) const override;
 };
 
 }  // namespace builtin

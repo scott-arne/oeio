@@ -61,6 +61,7 @@ set(OEIO_SOURCES
     src/cube_grid.cpp
     src/cube_reader.cpp
     src/cube_writer.cpp
+    src/cube_handler.cpp
 )
 
 add_library(oeio ${OEIO_SOURCES})

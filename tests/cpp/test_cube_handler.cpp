@@ -4,6 +4,7 @@
 #include "oeio/cube_handler.h"
 #include "oeio/exceptions.h"
 #include "oeio/format_handler.h"
+#include "oeio/format_registry.h"
 #include "oeio/mol_range.h"
 #include "oeio/write.h"
 
@@ -20,6 +21,11 @@
 #include <vector>
 
 namespace oeio {
+
+// Forward-declared so the CUBE handler's translation unit (and its static
+// registration) survives static linking; mirrors the OEChem force-link pattern.
+void oeio_force_link_cube_handler();
+
 namespace test {
 
 namespace {
@@ -909,6 +915,31 @@ TEST(CubeWriter, RoundTripPreservesNonRoundValues) {
     }
 
     std::filesystem::remove(tmp);
+}
+
+// The CUBE handler must register itself for the .cube/.cub extensions so the
+// format is discoverable through the FormatRegistry (and thus the Reader/Writer
+// facade). The force-link call ensures the handler's translation unit -- and
+// hence its static registration -- is not dropped by the linker.
+TEST(CubeHandler, RegistersForCubeExtensions) {
+    oeio::oeio_force_link_cube_handler();  // ensure the TU is linked in
+    auto* h = oeio::FormatRegistry::instance().lookup("foo.cube");
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(h->info().name, "CUBE");
+    EXPECT_NE(oeio::FormatRegistry::instance().lookup("bar.cub"), nullptr);
+}
+
+// A reader created through the handler must parse a real CUBE record.
+TEST(CubeHandler, MakesWorkingReader) {
+    oeio::oeio_force_link_cube_handler();
+    auto* h = oeio::FormatRegistry::instance().lookup("x.cube");
+    ASSERT_NE(h, nullptr);
+    auto src = h->make_reader(data_path("single_grid.cube"), std::any{});
+    ASSERT_NE(src, nullptr);
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    ASSERT_TRUE(src->next(mol, grids));
+    EXPECT_EQ(grids.size(), 1u);
 }
 
 }  // namespace test
