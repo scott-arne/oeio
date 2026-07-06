@@ -532,5 +532,53 @@ TEST(CubeWriter, MismatchedOriginRaises) {
     std::filesystem::remove(tmp);
 }
 
+// Non-round coordinates and grid values must survive the round-trip. Default
+// ostream precision (~6 significant digits) would silently truncate these; the
+// writer emits float max_digits10 so the values return within float epsilon.
+TEST(CubeWriter, RoundTripPreservesNonRoundValues) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_prec_" + std::to_string(getpid()) + ".cube");
+
+    OEChem::OEMol mol;
+    OEChem::OEAtomBase* a = mol.NewAtom(6);
+    const float coords[3] = { 1.23456789f, -9.87654321f, 3.14159274f };
+    mol.SetCoords(a, coords);
+
+    OESystem::OEScalarGrid g(2, 2, 2, 0.75f, 0.75f, 0.75f, 0.5f);
+    const std::vector<float> vals = {
+        0.123456791f, 1.98765433f, 2.71828175f, 3.14159274f,
+        4.55555553f, 5.12345675f, 6.66666651f, 7.89012337f };
+    g.SetValues(vals.data(), 8);
+
+    {
+        oeio::builtin::CubeMolSink sink(tmp.string());
+        std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+        ASSERT_TRUE(sink.write(mol, grids));
+        sink.close();
+    }
+
+    oeio::builtin::CubeMolSource src(tmp.string());
+    OEChem::OEMol back;
+    std::vector<OESystem::OEScalarGrid> back_grids;
+    ASSERT_TRUE(src.next(back, back_grids));
+    ASSERT_EQ(back.NumAtoms(), 1u);
+    ASSERT_EQ(back_grids.size(), 1u);
+
+    float back_xyz[3];
+    OESystem::OEIter<const OEChem::OEAtomBase> bi = back.GetAtoms();
+    ASSERT_TRUE(bool(bi));
+    back.GetCoords(&*bi, back_xyz);
+    EXPECT_NEAR(back_xyz[0], coords[0], 1e-5);
+    EXPECT_NEAR(back_xyz[1], coords[1], 1e-5);
+    EXPECT_NEAR(back_xyz[2], coords[2], 1e-5);
+
+    const float* back_vals = back_grids[0].GetValues();
+    for (unsigned int i = 0; i < 8; ++i) {
+        EXPECT_NEAR(back_vals[i], vals[i], 1e-6) << "value index " << i;
+    }
+
+    std::filesystem::remove(tmp);
+}
+
 }  // namespace test
 }  // namespace oeio

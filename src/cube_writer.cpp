@@ -8,6 +8,8 @@
 
 #include <cmath>
 #include <fstream>
+#include <iomanip>
+#include <limits>
 #include <vector>
 
 namespace oeio {
@@ -49,6 +51,11 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
 
     std::ofstream out(path_);
     if (!out) throw FileError("oeio: unable to open '" + path_ + "' for writing");
+
+    // Emit enough significant digits to round-trip IEEE-754 single precision
+    // exactly; the default (~6) would silently truncate non-round coordinates
+    // and grid values. max_digits10 for float is 9.
+    out << std::setprecision(std::numeric_limits<float>::max_digits10);
 
     const OESystem::OEScalarGrid& g0 = *grids[0];
     const int nx = static_cast<int>(g0.GetXDim());
