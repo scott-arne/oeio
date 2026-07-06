@@ -63,6 +63,26 @@ struct CubeAxes {
 /// \returns true iff the grid is axis-aligned/positive/cubic.
 bool is_axis_aligned_uniform(const CubeAxes& ax, double tol, double& spacing_out);
 
+/// \brief Validate the scalar shape of a CUBE record against the shared limits.
+///
+/// Checks the counts and dimensions (grid/orbital count, atom count, atomless
+/// multi-grid encoding, per-dimension voxel bounds, and the total element
+/// ceiling) and throws oeio::FormatError describing the first violation. This
+/// is pure integer logic with no allocation, so the ceilings a live
+/// molecule/grid could not reach without exhausting memory (the atom-count and
+/// total-element limits) remain unit-testable. Callers that write a file must
+/// invoke this BEFORE opening the target so a rejected write never truncates an
+/// existing file.
+///
+/// \param natom Number of atoms in the molecule.
+/// \param ngrid Number of grids to serialize (>= 1).
+/// \param nx X voxel count of the (shared) grid geometry.
+/// \param ny Y voxel count.
+/// \param nz Z voxel count.
+/// \raises oeio::FormatError When any scalar shape constraint is violated.
+void validate_cube_shape(unsigned long natom, std::size_t ngrid,
+                         int nx, int ny, int nz);
+
 /// \brief Convert a CUBE origin (corner) to an OEScalarGrid midpoint.
 ///
 /// mid = origin + spacing * ((nx-1)/2, (ny-1)/2, (nz-1)/2)

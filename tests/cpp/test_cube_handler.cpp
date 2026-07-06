@@ -221,6 +221,64 @@ TEST(CubeGrid, NonFiniteRejected) {
     EXPECT_FALSE(oeio::cube::is_axis_aligned_uniform(ax2, 1e-6, spacing2));
 }
 
+// validate_cube_shape is pure integer logic (no allocation), so it can exercise
+// every shared ceiling directly -- including the atom-count and total-element
+// limits a live molecule/grid could not reach without exhausting memory. These
+// mirror the reader's limits so a shape the writer accepts always reads back.
+TEST(CubeShape, AcceptsValidShape) {
+    EXPECT_NO_THROW(oeio::cube::validate_cube_shape(1, 1, 2, 2, 2));
+    EXPECT_NO_THROW(oeio::cube::validate_cube_shape(0, 1, 2, 2, 2));  // atomless single-grid ok
+}
+
+TEST(CubeShape, RejectsZeroGrids) {
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 0, 2, 2, 2), oeio::FormatError);
+}
+
+TEST(CubeShape, RejectsTooManyGrids) {
+    // MAX_ORBITAL_COUNT == 1024: 1024 grids ok, 1025 rejected.
+    EXPECT_NO_THROW(oeio::cube::validate_cube_shape(1, 1024, 1, 1, 1));
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 1025, 1, 1, 1), oeio::FormatError);
+}
+
+TEST(CubeShape, RejectsAtomlessMultiGrid) {
+    // A negative-atom-count MO marker cannot encode zero atoms (-0 == 0).
+    EXPECT_THROW(oeio::cube::validate_cube_shape(0, 2, 2, 2, 2), oeio::FormatError);
+}
+
+TEST(CubeShape, RejectsNonPositiveDim) {
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 1, 0, 2, 2), oeio::FormatError);
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 1, 2, 0, 2), oeio::FormatError);
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 1, 2, 2, 0), oeio::FormatError);
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 1, -1, 2, 2), oeio::FormatError);
+}
+
+TEST(CubeShape, RejectsOversizedDim) {
+    // MAX_VOXELS_PER_DIM == 8192.
+    EXPECT_NO_THROW(oeio::cube::validate_cube_shape(1, 1, 8192, 1, 1));
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 1, 8193, 1, 1), oeio::FormatError);
+}
+
+// The atom-count ceiling (MAX_ATOM_COUNT == 100000000) cannot be exercised
+// through a live OEMol (100M+ atoms would exhaust memory), so it is verified
+// directly here: the boundary is accepted, one past it is rejected.
+TEST(CubeShape, RejectsAtomCountCeiling) {
+    EXPECT_NO_THROW(oeio::cube::validate_cube_shape(100000000UL, 1, 2, 2, 2));
+    EXPECT_THROW(oeio::cube::validate_cube_shape(100000001UL, 1, 2, 2, 2),
+                 oeio::FormatError);
+}
+
+// The total-element ceiling (MAX_TOTAL_ELEMENTS == 134217728) likewise cannot be
+// reached through a live grid without allocating ~512 MiB, so it is verified
+// directly. 8192 * 8192 * 2 == 134217728 (the accepted maximum); one more voxel
+// or a second grid exceeds it.
+TEST(CubeShape, RejectsTotalElementCeiling) {
+    EXPECT_NO_THROW(oeio::cube::validate_cube_shape(1, 1, 8192, 8192, 2));  // == max
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 1, 8192, 8192, 3),
+                 oeio::FormatError);  // exceeds via dimension
+    EXPECT_THROW(oeio::cube::validate_cube_shape(1, 2, 8192, 8192, 2),
+                 oeio::FormatError);  // exceeds via grid count
+}
+
 TEST(CubeReader, SingleGridReadsMolAndGrid) {
     oeio::builtin::CubeMolSource src(data_path("single_grid.cube"));
     OEChem::OEMol mol;

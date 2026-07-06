@@ -68,50 +68,23 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
     const int ngrid = static_cast<int>(grids.size());
     const int natom = mol.NumAtoms();
 
-    // Bound the grid and atom counts to the same ceilings the reader enforces,
-    // so a molecule/grid set the writer accepts always reads back. A multi-grid
-    // set larger than MAX_ORBITAL_COUNT would emit an orbital header the reader
-    // rejects; an atom count above MAX_ATOM_COUNT would exceed the reader's
-    // limit (and NumAtoms() is tested unsigned to avoid the int truncation the
-    // -natom marker below would otherwise suffer).
-    if (ngrid > cube::MAX_ORBITAL_COUNT) {
-        throw FormatError("oeio: CUBE: grid count exceeds MO orbital limit (" +
-                          std::to_string(cube::MAX_ORBITAL_COUNT) + ")");
-    }
-    if (mol.NumAtoms() > static_cast<unsigned>(cube::MAX_ATOM_COUNT)) {
-        throw FormatError("oeio: CUBE: atom count exceeds limit (" +
-                          std::to_string(cube::MAX_ATOM_COUNT) + ")");
-    }
-
-    // A multi-grid CUBE is encoded as an MO cube: a NEGATIVE atom count signals
-    // the reader to consume the orbital header line. With zero atoms, negating
-    // the count yields 0, which the reader treats as a single-grid cube and then
-    // misparses the orbital header as volumetric data. There is no valid MO
-    // encoding for an atomless molecule, so reject it rather than emit a file
-    // that will not round-trip. All input validation happens BEFORE the output
-    // file is opened so a rejected write never truncates an existing file.
-    if (ngrid > 1 && natom == 0) {
-        throw FormatError(
-            "oeio: CUBE: cannot write a multi-grid (MO) cube for a molecule "
-            "with no atoms");
-    }
-
     // Validate the ENTIRE serializable payload before opening the target, so an
-    // invalid grid (zero/negative dimensions, non-finite spacing/coordinates/
-    // values) is rejected without truncating an existing file and without
-    // emitting a CUBE that CubeMolSource would refuse to read back.
+    // invalid molecule/grid is rejected without truncating an existing file and
+    // without emitting a CUBE that CubeMolSource would refuse to read back.
+    //
+    // Scalar shape (grid/atom counts, atomless-multi-grid encoding, per-dim and
+    // total voxel ceilings) is validated by the shared helper so the writer's
+    // guards cannot drift from the reader's limits and so the ceilings a live
+    // grid could not reach without exhausting memory stay unit-testable.
+    // NumAtoms() is passed as unsigned to avoid the int truncation the -natom MO
+    // marker below would otherwise suffer.
     const OESystem::OEScalarGrid& g0 = *grids[0];
     const int nx = static_cast<int>(g0.GetXDim());
     const int ny = static_cast<int>(g0.GetYDim());
     const int nz = static_cast<int>(g0.GetZDim());
-    if (nx < 1 || ny < 1 || nz < 1) {
-        throw FormatError("oeio: CUBE: grid dimensions must be positive");
-    }
-    if (nx > cube::MAX_VOXELS_PER_DIM || ny > cube::MAX_VOXELS_PER_DIM ||
-        nz > cube::MAX_VOXELS_PER_DIM) {
-        throw FormatError("oeio: CUBE: voxel count per dimension must be <= " +
-                          std::to_string(cube::MAX_VOXELS_PER_DIM));
-    }
+    cube::validate_cube_shape(mol.NumAtoms(), grids.size(), nx, ny, nz);
+
+    // Remaining checks below are finite/float concerns (not scalar shape).
     const float spacing = g0.GetSpacing();
     // Reject a spacing that would serialize (in Bohr) at or below the reader's
     // axis tolerance, since is_axis_aligned_uniform() would then treat the axis
@@ -143,13 +116,10 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
         require_finite(xyz[1], "atom coordinate");
         require_finite(xyz[2], "atom coordinate");
     }
+    // Total-element and per-dimension ceilings were enforced by
+    // validate_cube_shape() above; this product is now safe to form for the
+    // value-iteration bounds.
     const std::size_t voxels = static_cast<std::size_t>(nx) * ny * nz;
-    // Bound the total element count (voxels * ngrid) to the reader's ceiling.
-    // The division form is overflow-safe: ngrid >= 1, so no product is formed.
-    if (voxels > cube::MAX_TOTAL_ELEMENTS / static_cast<std::size_t>(ngrid)) {
-        throw FormatError("oeio: CUBE: total grid element count exceeds limit (" +
-                          std::to_string(cube::MAX_TOTAL_ELEMENTS) + " floats)");
-    }
     for (int g = 0; g < ngrid; ++g) {
         const float* vals = grids[g]->GetValues();
         if (!vals) throw FormatError("oeio: CUBE: grid has no values");
