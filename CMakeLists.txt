@@ -60,6 +60,7 @@ set(OEIO_SOURCES
     src/pipeline.cpp
     src/cube_grid.cpp
     src/cube_reader.cpp
+    src/cube_writer.cpp
 )
 
 add_library(oeio ${OEIO_SOURCES})

@@ -10,9 +10,11 @@
 #include <oechem.h>
 #include <oegrid.h>
 
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace oeio {
@@ -440,6 +442,94 @@ TEST(CubeReader, FractionalVoxelCountRejected) {
     OEChem::OEMol mol;
     std::vector<OESystem::OEScalarGrid> grids;
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
+TEST(CubeWriter, RoundTripSingleGridPreservesOriginAndValues) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_" + std::to_string(getpid()) + ".cube");
+
+    // Build a molecule (1 carbon at 1,2,3 A) and a 2x2x2 grid with a known
+    // non-zero origin so the origin<->midpoint mapping is exercised.
+    OEChem::OEMol mol;
+    OEChem::OEAtomBase* a = mol.NewAtom(6);
+    float coords[3] = { 1.0f, 2.0f, 3.0f };
+    mol.SetCoords(a, coords);
+
+    // midpoint chosen so derived origin is (0.5,0.5,0.5) A with spacing 0.5, n=2:
+    // mid = origin + s*((2-1)/2) = 0.5 + 0.25 = 0.75
+    OESystem::OEScalarGrid g(2, 2, 2, 0.75f, 0.75f, 0.75f, 0.5f);
+    std::vector<float> vals = {0,1,2,3,4,5,6,7};
+    g.SetValues(vals.data(), 8);
+
+    {
+        oeio::builtin::CubeMolSink sink(tmp.string());
+        std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+        ASSERT_TRUE(sink.write(mol, grids));
+        sink.close();
+    }
+
+    oeio::builtin::CubeMolSource src(tmp.string());
+    OEChem::OEMol back;
+    std::vector<OESystem::OEScalarGrid> back_grids;
+    ASSERT_TRUE(src.next(back, back_grids));
+    EXPECT_EQ(back.NumAtoms(), 1u);
+    ASSERT_EQ(back_grids.size(), 1u);
+    EXPECT_EQ(back_grids[0].GetXDim(), 2u);
+    EXPECT_NEAR(back_grids[0].GetSpacing(), 0.5f, 1e-4);
+    // Derived origin (center of voxel (0,0,0)) survives the round-trip.
+    // NOTE: GetX(0) is the CUBE origin (voxel-0 center); GetXMin() is the grid's
+    // low CORNER (mid - extent/2) and is NOT the origin — do not assert on it.
+    EXPECT_NEAR(back_grids[0].GetX(0), 0.5f, 1e-3);
+    EXPECT_NEAR(back_grids[0].GetY(0), 0.5f, 1e-3);
+    EXPECT_NEAR(back_grids[0].GetZ(0), 0.5f, 1e-3);
+    EXPECT_FLOAT_EQ(back_grids[0].GetValues()[5], 5.0f);
+
+    std::filesystem::remove(tmp);
+}
+
+TEST(CubeWriter, WriteWithoutGridRaises) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_nogrid_" + std::to_string(getpid()) + ".cube");
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    EXPECT_THROW(sink.write(mol), oeio::FormatError);
+    std::filesystem::remove(tmp);
+}
+
+TEST(CubeWriter, MismatchedDimsRaises) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_dims_" + std::to_string(getpid()) + ".cube");
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g0(2,2,2, 0,0,0, 0.5f);
+    OESystem::OEScalarGrid g1(3,3,3, 0,0,0, 0.5f);  // different dims
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g0, &g1 };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+    std::filesystem::remove(tmp);
+}
+
+TEST(CubeWriter, MismatchedSpacingRaises) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_spacing_" + std::to_string(getpid()) + ".cube");
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g0(2,2,2, 0,0,0, 0.5f);
+    OESystem::OEScalarGrid g1(2,2,2, 0,0,0, 0.6f);  // different spacing
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g0, &g1 };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+    std::filesystem::remove(tmp);
+}
+
+TEST(CubeWriter, MismatchedOriginRaises) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_origin_" + std::to_string(getpid()) + ".cube");
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g0(2,2,2, 0.0f,0.0f,0.0f, 0.5f);
+    OESystem::OEScalarGrid g1(2,2,2, 1.0f,0.0f,0.0f, 0.5f);  // different midpoint/origin
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g0, &g1 };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+    std::filesystem::remove(tmp);
 }
 
 }  // namespace test

@@ -37,5 +37,22 @@ private:
     bool consumed_ = false;  // CUBE holds exactly one record
 };
 
+/// \brief MolSink that writes Gaussian CUBE files (molecule + N scalar grids).
+class CubeMolSink : public MolSink {
+public:
+    explicit CubeMolSink(const std::string& path);
+
+    /// Writing a CUBE requires at least one grid; this raises FormatError.
+    bool write(const OEChem::OEMolBase& mol) override;
+
+    bool write(const OEChem::OEMolBase& mol,
+               const std::vector<const OESystem::OEScalarGrid*>& grids) override;
+
+    void close() override;
+
+private:
+    std::string path_;
+};
+
 }  // namespace builtin
 }  // namespace oeio
