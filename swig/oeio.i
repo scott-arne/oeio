@@ -466,7 +466,7 @@ void _install_exception_types(PyObject* err,
 // Version macros
 // ============================================================================
 #define OEIO_VERSION_MAJOR 0
-#define OEIO_VERSION_MINOR 3
+#define OEIO_VERSION_MINOR 4
 #define OEIO_VERSION_PATCH 0
 
 // ============================================================================
@@ -972,7 +972,7 @@ def formats():
     return list(FormatRegistry.instance().formats())
 
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 _install_exception_types(Error, FormatError, FileError)
 %}

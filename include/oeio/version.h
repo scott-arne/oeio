@@ -4,5 +4,5 @@
 /// \brief oeio version macros.
 
 #define OEIO_VERSION_MAJOR 0
-#define OEIO_VERSION_MINOR 3
+#define OEIO_VERSION_MINOR 4
 #define OEIO_VERSION_PATCH 0
