@@ -71,6 +71,20 @@ def smi_file(tmp_path):
 
 
 @pytest.fixture
+def cube_file():
+    """Path to the single-grid CUBE test file."""
+    import pathlib
+    return str(pathlib.Path(__file__).parent.parent / "data" / "single_grid.cube")
+
+
+@pytest.fixture
+def mo_cube_file():
+    """Path to the 3-orbital MO CUBE test file."""
+    import pathlib
+    return str(pathlib.Path(__file__).parent.parent / "data" / "mo_3grid.cube")
+
+
+@pytest.fixture
 def multiconf_oeb(tmp_path):
     """Write a temp OEB with one 3-conformer molecule; return the path."""
     from openeye import oechem

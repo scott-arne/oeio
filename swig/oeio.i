@@ -347,6 +347,57 @@ OE_CROSS_RUNTIME_NULLABLE_PTR_TYPEMAPS(OESystem::OEScalarGrid, _oeio_is_oescalar
     if (!$result) SWIG_fail;
 }
 
+// ---- Grid-list input typemaps (cross-runtime) ----
+// Convert a Python sequence of native openeye.oegrid.OEScalarGrid objects into a
+// std::vector of (const) OEScalarGrid* by extracting each element's underlying
+// pointer with the same proven primitives the single-grid typemaps use. We do
+// NOT use SWIG %template vectors here: SWIG has no native knowledge of the
+// cross-runtime OEScalarGrid type, and the OEScalarGrid* out-typemap transfers
+// ownership (wrong for a borrowed vector element). Building the vector by hand
+// keeps ownership with Python and lets the reader fill the caller's grids
+// in-place (fill-through).
+%typemap(in) const std::vector<OESystem::OEScalarGrid*>&
+        (std::vector<OESystem::OEScalarGrid*> tmp) {
+    if (!PySequence_Check($input)) {
+        SWIG_exception_fail(SWIG_TypeError, "Expected a sequence of OEScalarGrid.");
+    }
+    Py_ssize_t n = PySequence_Size($input);
+    for (Py_ssize_t i = 0; i < n; ++i) {
+        PyObject* item = PySequence_GetItem($input, i);  // new ref
+        if (!item) SWIG_exception_fail(SWIG_RuntimeError, "grid sequence access failed");
+        if (!_oeio_is_oescalargrid(item)) {
+            Py_DECREF(item);
+            SWIG_exception_fail(SWIG_TypeError, "Expected OEScalarGrid in sequence.");
+        }
+        void* p = _oeio_extract_swig_ptr(item);
+        Py_DECREF(item);
+        if (!p) SWIG_exception_fail(SWIG_RuntimeError, "failed to extract grid pointer");
+        tmp.push_back(reinterpret_cast<OESystem::OEScalarGrid*>(p));
+    }
+    $1 = &tmp;
+}
+
+%typemap(in) const std::vector<const OESystem::OEScalarGrid*>&
+        (std::vector<const OESystem::OEScalarGrid*> tmp) {
+    if (!PySequence_Check($input)) {
+        SWIG_exception_fail(SWIG_TypeError, "Expected a sequence of OEScalarGrid.");
+    }
+    Py_ssize_t n = PySequence_Size($input);
+    for (Py_ssize_t i = 0; i < n; ++i) {
+        PyObject* item = PySequence_GetItem($input, i);  // new ref
+        if (!item) SWIG_exception_fail(SWIG_RuntimeError, "grid sequence access failed");
+        if (!_oeio_is_oescalargrid(item)) {
+            Py_DECREF(item);
+            SWIG_exception_fail(SWIG_TypeError, "Expected OEScalarGrid in sequence.");
+        }
+        void* p = _oeio_extract_swig_ptr(item);
+        Py_DECREF(item);
+        if (!p) SWIG_exception_fail(SWIG_RuntimeError, "failed to extract grid pointer");
+        tmp.push_back(reinterpret_cast<const OESystem::OEScalarGrid*>(p));
+    }
+    $1 = &tmp;
+}
+
 // ---- Docking (OEDocking) ----
 OE_CROSS_RUNTIME_REF_TYPEMAPS(OEDocking::OEReceptor, _oeio_is_oereceptor, "Expected OEReceptor object.")
 
@@ -513,13 +564,25 @@ namespace oeio {
 class _ReaderHandle {
 public:
     bool next(OEChem::OEMolBase& mol);
+    // Read mol + up to grids.size() grids (filled in place via the grid-list
+    // input typemap). Returns N (>=0), the record's grid count, or -1 at EOF.
+    int next_grids(OEChem::OEMolBase& mol,
+                   const std::vector<OESystem::OEScalarGrid*>& grids);
+    // Read mol + all N grids; returns a Python tuple of native OEScalarGrid
+    // objects, or None at end-of-stream. Used by with_grids().
+    PyObject* next_grid_tuple(OEChem::OEMolBase& mol);
 private:
     _ReaderHandle();
 };
 
 class _WriterHandle {
 public:
-    bool append(const OEChem::OEMolBase& mol);
+    // Molecule-only write (renamed from append so the Python `append` added via
+    // %extend can dispatch without hiding this path). CUBE raises here.
+    bool append_mol(const OEChem::OEMolBase& mol);
+    // Write mol + grids (converted from a Python sequence via the input typemap).
+    bool append_grids(const OEChem::OEMolBase& mol,
+                      const std::vector<const OESystem::OEScalarGrid*>& grids);
     void close();
     ~_WriterHandle();
 private:
@@ -550,6 +613,36 @@ public:
         return source_->next(mol);
     }
 
+    /// Read mol + fill up to grids.size() caller-owned grids in place.
+    /// Returns N (the record's grid count, >= 0) or -1 at end-of-stream.
+    int next_grids(OEChem::OEMolBase& mol,
+                   const std::vector<OESystem::OEScalarGrid*>& grids) {
+        if (!source_) return -1;
+        int n = 0;
+        if (!source_->next(mol, grids, &n)) return -1;
+        return n;
+    }
+
+    /// Read mol + all N grids and wrap them as a Python tuple of native
+    /// openeye.oegrid.OEScalarGrid objects. Returns a new reference to the
+    /// tuple, or a new reference to Py_None at end-of-stream. Ownership of each
+    /// heap grid transfers to the Python object via _oeio_wrap_as_oe_grid.
+    PyObject* next_grid_tuple(OEChem::OEMolBase& mol) {
+        if (!source_) Py_RETURN_NONE;
+        std::vector<OESystem::OEScalarGrid> owned;
+        if (!source_->next(mol, owned)) Py_RETURN_NONE;
+        PyObject* tup = PyTuple_New(static_cast<Py_ssize_t>(owned.size()));
+        if (!tup) return NULL;
+        for (std::size_t i = 0; i < owned.size(); ++i) {
+            // Copy each grid onto the heap; _oeio_wrap_as_oe_grid adopts it.
+            auto* heap = new OESystem::OEScalarGrid(owned[i]);
+            PyObject* py = _oeio_wrap_as_oe_grid(heap);
+            if (!py) { Py_DECREF(tup); return NULL; }
+            PyTuple_SET_ITEM(tup, static_cast<Py_ssize_t>(i), py);  // steals ref
+        }
+        return tup;
+    }
+
 private:
     std::unique_ptr<MolSource> source_;
 };
@@ -559,8 +652,13 @@ public:
     _WriterHandle(std::unique_ptr<MolSink> sink)
         : sink_(std::move(sink)) {}
 
-    bool append(const OEChem::OEMolBase& mol) {
+    bool append_mol(const OEChem::OEMolBase& mol) {
         return sink_ ? sink_->write(mol) : false;
+    }
+
+    bool append_grids(const OEChem::OEMolBase& mol,
+                      const std::vector<const OESystem::OEScalarGrid*>& grids) {
+        return sink_ ? sink_->write(mol, grids) : false;
     }
 
     void close() {
@@ -622,6 +720,24 @@ _WriterHandle* _open_writer(const std::string& path) {
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
+
+    def append(self, mol, *grids):
+        """Write a molecule, optionally with one or more scalar grids.
+
+        Without grids, this writes the molecule via the molecule-only path
+        (formats with no grid support write as before; the CUBE format, which
+        requires at least one grid, raises ``FormatError``). With grids, it
+        writes the molecule plus grids in one record.
+
+        :param mol: An ``oechem`` molecule to write.
+        :param grids: Zero or more ``oegrid.OEScalarGrid`` to write alongside.
+        :returns: ``True`` on success.
+        :raises FormatError: If the format cannot represent the request (e.g.
+            a grid-less CUBE write).
+        """
+        if not grids:
+            return self.append_mol(mol)
+        return self.append_grids(mol, list(grids))
 %}
 }
 
@@ -673,22 +789,71 @@ class Reader:
             yield mol
             mol = oechem.OEMol()
 
-    def read_into(self, mol):
-        """Read the next molecule into a caller-owned molecule.
+    def __next__(self):
+        """Return the next molecule, raising ``StopIteration`` at end-of-stream.
 
-        Reuses ``mol`` as the buffer (no new Python molecule allocated per
-        call). The molecule's type determines the read behavior (an ``OEMol``
-        reads multi-conformer, an ``OEGraphMol`` single-conformer). For the
-        built-in OEChem handler, this is truly zero-copy; other format handlers
-        may copy internally if they do not override the OEMolBase read path.
+        Lets a reader be advanced one molecule at a time with the built-in
+        ``next()``. Each call allocates and returns a fresh ``OEMol``.
+
+        :returns: The next ``OEMol``.
+        :raises StopIteration: At end-of-stream.
+        :raises ValueError: If the reader is closed.
+        """
+        from openeye import oechem
+
+        if self._closed:
+            raise ValueError("I/O operation on closed reader")
+        mol = oechem.OEMol()
+        if not self._handle.next(mol):
+            raise StopIteration
+        return mol
+
+    def read_into(self, mol, *grids):
+        """Read the next molecule (and optionally grids) into caller-owned objects.
+
+        Without grids, this reuses ``mol`` as the buffer and returns ``True``
+        while records remain, ``False`` at end-of-stream. With one or more
+        grids, it additionally fills ``min(len(grids), N)`` of them and returns
+        ``N`` (the record's grid count) on success, or ``None`` at
+        end-of-stream. ``N == 0`` is a valid non-EOF read (a molecule with no
+        grids), distinct from ``None``.
 
         :param mol: An ``oechem`` molecule to populate.
-        :returns: ``True`` if a molecule was read, ``False`` at end-of-stream.
+        :param grids: Zero or more ``oegrid.OEScalarGrid`` to fill in place.
+        :returns: ``bool`` when no grids are passed; ``int`` or ``None`` when
+            grids are passed.
         :raises ValueError: If the reader is closed.
         """
         if self._closed:
             raise ValueError("I/O operation on closed reader")
-        return self._handle.next(mol)
+        if not grids:
+            return self._handle.next(mol)
+        n = self._handle.next_grids(mol, list(grids))
+        return None if n < 0 else n
+
+    def with_grids(self):
+        """Iterate ``(molecule, grids)`` records, ``grids`` being all N grids.
+
+        Each record yields a fresh ``OEMol`` and a tuple of native
+        ``oegrid.OEScalarGrid`` objects (empty for a molecule with no grids).
+        Only valid directly on a ``read(...)`` range, not after
+        ``filter``/``transform`` (which yield molecules only).
+
+        :returns: Generator of ``(OEMol, tuple-of-OEScalarGrid)``.
+        :raises ValueError: If the reader is closed.
+        """
+        from openeye import oechem
+
+        if self._closed:
+            raise ValueError("I/O operation on closed reader")
+        while True:
+            if self._closed:
+                raise ValueError("I/O operation on closed reader")
+            mol = oechem.OEMol()
+            grids = self._handle.next_grid_tuple(mol)
+            if grids is None:
+                break
+            yield mol, grids
 
     def as_type(self, cls):
         """Iterate molecules as instances of ``cls``.
