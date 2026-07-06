@@ -138,8 +138,13 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
         out << "\n";
     }
 
-    // Mark the single record as consumed only after a successful write, so a
-    // failed write does not block a legitimate retry to the same sink.
+    // Close explicitly and re-check the stream state so a failure that only
+    // surfaces during the final flush/close (disk full, quota, network
+    // filesystem) is observed here rather than being swallowed by the
+    // destructor after success was already reported. Mark the single record
+    // consumed only after this close-checked success, so a failed write leaves
+    // the sink retryable.
+    out.close();
     const bool ok = static_cast<bool>(out);
     if (ok) written_ = true;
     return ok;

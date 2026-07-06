@@ -563,6 +563,38 @@ TEST(CubeWriter, ZeroAtomMultiGridRaises) {
     std::filesystem::remove(tmp);
 }
 
+// A write that FAILS (here: the output path cannot be opened) must NOT mark the
+// sink as consumed; a subsequent write to a valid path on the same sink must
+// still succeed. This guards the "written_ only set after a close-checked
+// success" contract so a failed/partial write stays retryable.
+TEST(CubeWriter, FailedWriteLeavesSinkRetryable) {
+    // A path under a non-existent directory cannot be opened for writing.
+    const std::string bad_path =
+        (std::filesystem::temp_directory_path() /
+         ("oeio_cube_nodir_" + std::to_string(getpid())) / "out.cube").string();
+    const auto good = std::filesystem::temp_directory_path() /
+                      ("oeio_cube_retry_" + std::to_string(getpid()) + ".cube");
+
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g(2,2,2, 0.75f,0.75f,0.75f, 0.5f);
+    std::vector<float> vals = {0,1,2,3,4,5,6,7};
+    g.SetValues(vals.data(), 8);
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+
+    oeio::builtin::CubeMolSink bad_sink(bad_path);
+    EXPECT_THROW(bad_sink.write(mol, grids), oeio::FileError);
+    // The failed write must not have consumed the single-record slot: a retry
+    // still reaches the file-open path and fails with FileError again, NOT the
+    // "single record" FormatError that a set written_ flag would produce.
+    EXPECT_THROW(bad_sink.write(mol, grids), oeio::FileError);
+
+    // A fresh sink to a writable path writes successfully.
+    oeio::builtin::CubeMolSink good_sink(good.string());
+    EXPECT_TRUE(good_sink.write(mol, grids));
+
+    std::filesystem::remove(good);
+}
+
 // A CUBE holds exactly one record. A second write to the same sink must be
 // rejected with FormatError before opening the file, leaving the first record
 // intact (no silent truncation/overwrite via a repeated Writer append).
