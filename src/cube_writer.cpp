@@ -49,6 +49,14 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
         }
     }
 
+    // A CUBE file holds exactly one record. Reject a second write before opening
+    // the file so a repeated append through the Writer API cannot truncate and
+    // overwrite the first record (silent data loss). This mirrors the reader's
+    // single-record contract.
+    if (written_) {
+        throw FormatError("oeio: CUBE holds a single record; cannot append again");
+    }
+
     const int ngrid = static_cast<int>(grids.size());
     const int natom = mol.NumAtoms();
 
@@ -130,7 +138,11 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
         out << "\n";
     }
 
-    return static_cast<bool>(out);
+    // Mark the single record as consumed only after a successful write, so a
+    // failed write does not block a legitimate retry to the same sink.
+    const bool ok = static_cast<bool>(out);
+    if (ok) written_ = true;
+    return ok;
 }
 
 void CubeMolSink::close() {}

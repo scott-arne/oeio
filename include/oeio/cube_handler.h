@@ -52,6 +52,7 @@ public:
 
 private:
     std::string path_;
+    bool written_ = false;  // CUBE holds exactly one record; reject a second write
 };
 
 }  // namespace builtin

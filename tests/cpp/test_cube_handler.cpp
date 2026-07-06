@@ -563,6 +563,40 @@ TEST(CubeWriter, ZeroAtomMultiGridRaises) {
     std::filesystem::remove(tmp);
 }
 
+// A CUBE holds exactly one record. A second write to the same sink must be
+// rejected with FormatError before opening the file, leaving the first record
+// intact (no silent truncation/overwrite via a repeated Writer append).
+TEST(CubeWriter, SecondWriteRejectedAndFirstRecordIntact) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_second_" + std::to_string(getpid()) + ".cube");
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g(2,2,2, 0.75f,0.75f,0.75f, 0.5f);
+    std::vector<float> vals = {0,1,2,3,4,5,6,7};
+    g.SetValues(vals.data(), 8);
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    ASSERT_TRUE(sink.write(mol, grids));
+
+    // Capture the first record's bytes, then attempt a second write.
+    std::ifstream after_first(tmp.string());
+    const std::string first_contents(
+        (std::istreambuf_iterator<char>(after_first)),
+        std::istreambuf_iterator<char>());
+    ASSERT_FALSE(first_contents.empty());
+
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    // The first record must remain intact after the rejected second write.
+    std::ifstream after_second(tmp.string());
+    const std::string second_contents(
+        (std::istreambuf_iterator<char>(after_second)),
+        std::istreambuf_iterator<char>());
+    EXPECT_EQ(second_contents, first_contents);
+
+    std::filesystem::remove(tmp);
+}
+
 // A single-grid cube with zero atoms is valid (positive atom count 0, no MO
 // header) and must round-trip cleanly.
 TEST(CubeWriter, ZeroAtomSingleGridRoundTrips) {
