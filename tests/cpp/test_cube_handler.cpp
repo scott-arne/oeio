@@ -532,6 +532,46 @@ TEST(CubeWriter, MismatchedOriginRaises) {
     std::filesystem::remove(tmp);
 }
 
+// A multi-grid (MO) cube is signalled by a negative atom count. A zero-atom
+// molecule cannot carry that marker (-0 == 0), so a multi-grid write with no
+// atoms must be rejected rather than produce a file that would not round-trip.
+TEST(CubeWriter, ZeroAtomMultiGridRaises) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_zeroatom_" + std::to_string(getpid()) + ".cube");
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol;  // no atoms
+    OESystem::OEScalarGrid g0(2,2,2, 0.75f,0.75f,0.75f, 0.5f);
+    OESystem::OEScalarGrid g1(2,2,2, 0.75f,0.75f,0.75f, 0.5f);
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g0, &g1 };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+    std::filesystem::remove(tmp);
+}
+
+// A single-grid cube with zero atoms is valid (positive atom count 0, no MO
+// header) and must round-trip cleanly.
+TEST(CubeWriter, ZeroAtomSingleGridRoundTrips) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_zeroatom1_" + std::to_string(getpid()) + ".cube");
+    OEChem::OEMol mol;  // no atoms
+    OESystem::OEScalarGrid g(2,2,2, 0.75f,0.75f,0.75f, 0.5f);
+    std::vector<float> vals = {0,1,2,3,4,5,6,7};
+    g.SetValues(vals.data(), 8);
+    {
+        oeio::builtin::CubeMolSink sink(tmp.string());
+        std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+        ASSERT_TRUE(sink.write(mol, grids));
+        sink.close();
+    }
+    oeio::builtin::CubeMolSource src(tmp.string());
+    OEChem::OEMol back;
+    std::vector<OESystem::OEScalarGrid> back_grids;
+    ASSERT_TRUE(src.next(back, back_grids));
+    EXPECT_EQ(back.NumAtoms(), 0u);
+    ASSERT_EQ(back_grids.size(), 1u);
+    EXPECT_FLOAT_EQ(back_grids[0].GetValues()[5], 5.0f);
+    std::filesystem::remove(tmp);
+}
+
 // Non-round coordinates and grid values must survive the round-trip. Default
 // ostream precision (~6 significant digits) would silently truncate these; the
 // writer emits float max_digits10 so the values return within float epsilon.

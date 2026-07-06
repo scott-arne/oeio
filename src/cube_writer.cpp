@@ -75,11 +75,23 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
     const double origin_bohr[3] = { origin_ang[0] * inv, origin_ang[1] * inv,
                                     origin_ang[2] * inv };
 
+    // A multi-grid CUBE is encoded as an MO cube: a NEGATIVE atom count signals
+    // the reader to consume the orbital header line. With zero atoms, negating
+    // the count yields 0, which the reader treats as a single-grid cube and then
+    // misparses the orbital header as volumetric data. There is no valid MO
+    // encoding for an atomless molecule, so reject it rather than emit a file
+    // that will not round-trip.
+    const int natom = mol.NumAtoms();
+    if (ngrid > 1 && natom == 0) {
+        throw FormatError(
+            "oeio: CUBE: cannot write a multi-grid (MO) cube for a molecule "
+            "with no atoms");
+    }
+
     out << "CUBE file written by oeio\n";
     out << "OEScalarGrid volumetric data\n";
 
     // Atom count: negative if multi-grid (MO cube).
-    const int natom = mol.NumAtoms();
     const int atom_count_field = (ngrid > 1) ? -natom : natom;
     out << atom_count_field << " " << origin_bohr[0] << " " << origin_bohr[1]
         << " " << origin_bohr[2] << "\n";
