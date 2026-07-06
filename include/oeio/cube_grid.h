@@ -3,11 +3,44 @@
 /// \file cube_grid.h
 /// \brief Geometry and unit helpers for Gaussian CUBE grids.
 
+#include <cstddef>
+
 namespace oeio {
 namespace cube {
 
 /// CODATA Bohr radius in Angstrom (1 Bohr = 0.52917721067 A).
 constexpr double BOHR_TO_ANGSTROM = 0.52917721067;
+
+// Shared CUBE limits. These are the single source of truth for the bounds the
+// reader enforces on an untrusted file AND the bounds the writer refuses to
+// exceed, so a molecule/grid set the writer accepts always reads back (no
+// round-trip asymmetry). Keeping them here rather than duplicated in each
+// translation unit prevents the reader and writer from drifting apart.
+
+/// Absolute tolerance (in the axis' native unit, i.e. Bohr for a Bohr file) for
+/// treating a CUBE axis as aligned/cubic. The reader passes this to
+/// is_axis_aligned_uniform(); the writer refuses a spacing that would serialize
+/// at or below it (and so read back as "not axis-aligned").
+constexpr double AXIS_TOL = 1e-6;
+
+/// Maximum voxel count per grid dimension; bounds per-dimension allocation.
+constexpr int MAX_VOXELS_PER_DIM = 8192;
+
+/// Maximum total bytes across all grid buffers (bounds the whole allocation by
+/// memory footprint). The derived element ceiling stays well below UINT_MAX, so
+/// OEScalarGrid::SetValues() length casts never truncate.
+constexpr std::size_t MAX_TOTAL_BYTES = 512u * 1024u * 1024u;  // 512 MiB
+constexpr std::size_t MAX_TOTAL_ELEMENTS = MAX_TOTAL_BYTES / sizeof(float);
+
+/// Maximum orbital (grid) count for a multi-grid MO cube.
+constexpr int MAX_ORBITAL_COUNT = 1024;
+
+/// Highest supported atomic number (Oganesson, Z=118). Atom records outside
+/// [1, MAX_ATOMIC_NUMBER] are rejected on both read and write.
+constexpr int MAX_ATOMIC_NUMBER = 118;
+
+/// Maximum atom count. Bounds the atom loop so an absurd count fails cleanly.
+constexpr long MAX_ATOM_COUNT = 100000000L;
 
 /// Raw CUBE header geometry (origin, voxel counts, and the three axis vectors),
 /// in the unit the header used (converted to Angstrom by the caller afterward).

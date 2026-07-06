@@ -699,6 +699,112 @@ TEST(CubeWriter, ZeroAtomSingleGridRoundTrips) {
     std::filesystem::remove(tmp);
 }
 
+// A dummy/wildcard atom (atomic number 0, legal and common in OEChem) cannot be
+// serialized to a CUBE the reader would accept: the reader rejects any atomic
+// number outside [1, 118]. The writer must reject it BEFORE opening the target,
+// so a round-trip is symmetric and an existing file is not truncated.
+TEST(CubeWriter, DummyAtomZeroZRejectedAndTargetIntact) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_dummyz_" + std::to_string(getpid()) + ".cube");
+    const std::string sentinel = "EXISTING VALID FILE MUST SURVIVE\n";
+    { std::ofstream pre(tmp.string()); pre << sentinel; }
+
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(0);  // dummy atom, Z == 0
+    OESystem::OEScalarGrid g(2, 2, 2, 0.75f, 0.75f, 0.75f, 0.5f);
+    std::vector<float> vals = {0,1,2,3,4,5,6,7};
+    g.SetValues(vals.data(), 8);
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    std::ifstream check(tmp.string());
+    std::string contents((std::istreambuf_iterator<char>(check)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, sentinel);
+    std::filesystem::remove(tmp);
+}
+
+// A grid whose per-dimension voxel count exceeds the reader's cap
+// (MAX_VOXELS_PER_DIM == 8192) would emit a file the reader refuses. Reject
+// before opening the target; a very long, thin grid trips this before the total
+// element ceiling. Kept cheap: 8193x1x1 allocates only ~8k floats.
+TEST(CubeWriter, OversizedDimRejectedAndTargetIntact) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_bigdim_" + std::to_string(getpid()) + ".cube");
+    const std::string sentinel = "EXISTING VALID FILE MUST SURVIVE\n";
+    { std::ofstream pre(tmp.string()); pre << sentinel; }
+
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g(8193, 1, 1, 0.75f, 0.75f, 0.75f, 0.5f);  // > 8192
+    std::vector<float> vals(8193, 0.0f);
+    g.SetValues(vals.data(), 8193);
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    std::ifstream check(tmp.string());
+    std::string contents((std::istreambuf_iterator<char>(check)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, sentinel);
+    std::filesystem::remove(tmp);
+}
+
+// A multi-grid write with more grids than the reader's MO orbital cap
+// (MAX_ORBITAL_COUNT == 1024) would emit an orbital header the reader refuses.
+// Reject before opening. Kept cheap: 1025 tiny 1x1x1 grids.
+TEST(CubeWriter, TooManyGridsRejectedAndTargetIntact) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_manygrids_" + std::to_string(getpid()) + ".cube");
+    const std::string sentinel = "EXISTING VALID FILE MUST SURVIVE\n";
+    { std::ofstream pre(tmp.string()); pre << sentinel; }
+
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    std::vector<OESystem::OEScalarGrid> owned;
+    owned.reserve(1025);
+    float one = 1.0f;
+    for (int i = 0; i < 1025; ++i) {  // > 1024
+        OESystem::OEScalarGrid g(1, 1, 1, 0.5f, 0.5f, 0.5f, 0.5f);
+        g.SetValues(&one, 1);
+        owned.push_back(g);
+    }
+    std::vector<const OESystem::OEScalarGrid*> grids;
+    grids.reserve(owned.size());
+    for (const auto& g : owned) grids.push_back(&g);
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    std::ifstream check(tmp.string());
+    std::string contents((std::istreambuf_iterator<char>(check)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, sentinel);
+    std::filesystem::remove(tmp);
+}
+
+// A spacing so small it serializes (in Bohr) at or below the reader's axis
+// tolerance would read back as a degenerate (non-axis-aligned) grid. Reject it
+// on write so the round-trip stays symmetric.
+TEST(CubeWriter, DegenerateTinySpacingRejectedAndTargetIntact) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_tinyspace_" + std::to_string(getpid()) + ".cube");
+    const std::string sentinel = "EXISTING VALID FILE MUST SURVIVE\n";
+    { std::ofstream pre(tmp.string()); pre << sentinel; }
+
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    // 1e-7 A -> ~1.9e-7 Bohr, below AXIS_TOL (1e-6).
+    OESystem::OEScalarGrid g(2, 2, 2, 0.0f, 0.0f, 0.0f, 1e-7f);
+    std::vector<float> vals = {0,1,2,3,4,5,6,7};
+    g.SetValues(vals.data(), 8);
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    std::ifstream check(tmp.string());
+    std::string contents((std::istreambuf_iterator<char>(check)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, sentinel);
+    std::filesystem::remove(tmp);
+}
+
 // Non-round coordinates and grid values must survive the round-trip. Default
 // ostream precision (~6 significant digits) would silently truncate these; the
 // writer emits float max_digits10 so the values return within float epsilon.

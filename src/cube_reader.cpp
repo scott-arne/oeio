@@ -18,28 +18,15 @@ namespace oeio {
 namespace builtin {
 
 namespace {
-constexpr double AXIS_TOL = 1e-6;
-
-/// Maximum allowed voxel count per dimension; prevents absurd allocations.
-constexpr int MAX_VOXELS_PER_DIM = 8192;
-
-/// Maximum total bytes across all grid buffers. Bounds the whole allocation by
-/// memory footprint so a small malformed header cannot force a multi-gigabyte
-/// reservation before any volumetric data is read. The derived element ceiling
-/// stays well below UINT_MAX, so SetValues() lengths never truncate.
-constexpr std::size_t MAX_TOTAL_BYTES = 512u * 1024u * 1024u;  // 512 MiB
-constexpr std::size_t MAX_TOTAL_ELEMENTS = MAX_TOTAL_BYTES / sizeof(float);
-
-/// Maximum orbital count for MO cubes; prevents huge grid arrays.
-constexpr int MAX_ORBITAL_COUNT = 1024;
-
-/// Highest supported atomic number (Oganesson, Z=118). Atom records outside
-/// [1, MAX_ATOMIC_NUMBER] are rejected before reaching OpenEye.
-constexpr int MAX_ATOMIC_NUMBER = 118;
-
-/// Maximum atom count. Bounds the atom-parsing loop so a malformed header
-/// advertising an absurd atom count fails cleanly rather than spinning.
-constexpr long MAX_ATOM_COUNT = 100000000L;
+// CUBE limits (AXIS_TOL, MAX_VOXELS_PER_DIM, MAX_TOTAL_ELEMENTS,
+// MAX_ORBITAL_COUNT, MAX_ATOMIC_NUMBER, MAX_ATOM_COUNT) are defined once in
+// cube_grid.h so the reader's validation and the writer's guards cannot drift.
+using cube::AXIS_TOL;
+using cube::MAX_ATOM_COUNT;
+using cube::MAX_ATOMIC_NUMBER;
+using cube::MAX_ORBITAL_COUNT;
+using cube::MAX_TOTAL_ELEMENTS;
+using cube::MAX_VOXELS_PER_DIM;
 
 /// Read the next line of a CUBE file into a stringstream for record-anchored
 /// parsing. Fixed CUBE records occupy exactly one line each; reading a whole
