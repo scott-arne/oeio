@@ -112,3 +112,53 @@ class TestCubeWrite:
         with oeio.write(out) as writer:
             with pytest.raises(oeio.FormatError):
                 writer.append(mol)
+
+    def test_append_grids_accepts_lazy_sequence(self, cube_file, tmp_path):
+        """A sequence whose __getitem__ returns a fresh wrapper per access must
+        round-trip through the raw grid-list typemap. The typemap holds a tuple
+        reference for the duration of the C++ call, so the extracted grid
+        pointers cannot dangle. Calling the raw ``append_grids`` handle method
+        (not the ``append(*grids)`` shim, which materializes a list first)
+        exercises the typemap directly — regression for the fixed
+        extract-then-DECREF lifetime bug."""
+        import oeio
+        with oeio.read(cube_file) as reader:
+            mol, grids = next(iter(reader.with_grids()))
+        base = grids[0]
+
+        class FreshEachGet:
+            """Returns a fresh copy of the grid on every __getitem__, so the
+            only reference to the returned wrapper is the one the typemap must
+            keep alive itself."""
+            def __init__(self, src):
+                self._src = src
+
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, i):
+                from openeye import oegrid
+                if i != 0:
+                    raise IndexError(i)
+                return oegrid.OEScalarGrid(self._src)  # deep copy
+
+        out = str(tmp_path / "lazy.cube")
+        # write() returns the raw _WriterHandle; call the C++ method directly so
+        # the lazy sequence reaches the typemap unmaterialized.
+        writer = oeio.write(out)
+        assert writer.append_grids(mol, FreshEachGet(base)) is True
+        writer.close()
+        with oeio.read(out) as reader:
+            _, grids2 = next(iter(reader.with_grids()))
+        assert grids2[0].GetValues()[5] == 5.0
+
+    def test_append_rejects_non_grid_sequence_element(self, cube_file, tmp_path):
+        """A sequence element that is not an OEScalarGrid must raise cleanly
+        (TypeError), not crash — the typemap validates each element."""
+        import oeio
+        out = str(tmp_path / "badseq.cube")
+        with oeio.read(cube_file) as reader:
+            mol = next(reader)
+        with oeio.write(out) as writer:
+            with pytest.raises((TypeError, oeio.Error)):
+                writer.append(mol, "not a grid")

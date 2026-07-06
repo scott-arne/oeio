@@ -483,6 +483,18 @@ TEST(CubeReader, ShortAtomLineRejected) {
     EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
 }
 
+// An MO orbital header that declares more orbitals than it supplies ids for
+// must be rejected, not silently completed by splicing the first volumetric
+// value in as an orbital id (which would corrupt the grid data). The fixture
+// declares 3 orbitals but lists only 2 ids, then supplies volumetric data whose
+// first value a non-line-anchored parser would misread as the third id.
+TEST(CubeReader, ShortOrbitalHeaderRejected) {
+    oeio::builtin::CubeMolSource src(data_path("short_orbital_header.cube"));
+    OEChem::OEMol mol;
+    std::vector<OESystem::OEScalarGrid> grids;
+    EXPECT_THROW(src.next(mol, grids), oeio::FormatError);
+}
+
 // An atom line with an extra trailing field must be rejected as malformed
 // rather than silently ignored.
 TEST(CubeReader, ExtraAtomFieldRejected) {

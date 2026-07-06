@@ -239,18 +239,26 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
         mol.SetCoords(atom, coords);
     }
 
-    // MO cube: extra header line "M id1 id2 ... idM".
+    // MO cube: extra header line "M id1 id2 ... idM". Parse it as a single
+    // fixed record (line-anchored) so a short header cannot splice the first
+    // volumetric value in as an orbital id (which would silently corrupt the
+    // grid data instead of rejecting the file). Orbital ids are whole-integer
+    // tokens, matching the strict parsing used for every other count field.
     int ngrid = 1;
     if (mo_cube) {
-        const long m = parse_int_token(in, "orbital count");
+        std::istringstream orbital_line = next_record_line(in, "orbital header line");
+        const long m = parse_int_token(orbital_line, "orbital count");
         if (m < 1 || m > MAX_ORBITAL_COUNT) {
             throw FormatError("oeio: CUBE: orbital count must be in [1, " +
                               std::to_string(MAX_ORBITAL_COUNT) + "]");
         }
         ngrid = static_cast<int>(m);
         for (long i = 0; i < m; ++i) {
-            long id;
-            if (!(in >> id)) throw FormatError("oeio: CUBE: malformed orbital ids");
+            parse_int_token(orbital_line, "orbital id");
+        }
+        std::string leftover;
+        if (orbital_line >> leftover) {
+            throw FormatError("oeio: CUBE: unexpected extra data on orbital header line");
         }
     }
 

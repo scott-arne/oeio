@@ -357,45 +357,61 @@ OE_CROSS_RUNTIME_NULLABLE_PTR_TYPEMAPS(OESystem::OEScalarGrid, _oeio_is_oescalar
 // keeps ownership with Python and lets the reader fill the caller's grids
 // in-place (fill-through).
 %typemap(in) const std::vector<OESystem::OEScalarGrid*>&
-        (std::vector<OESystem::OEScalarGrid*> tmp) {
-    if (!PySequence_Check($input)) {
-        SWIG_exception_fail(SWIG_TypeError, "Expected a sequence of OEScalarGrid.");
-    }
-    Py_ssize_t n = PySequence_Size($input);
+        (std::vector<OESystem::OEScalarGrid*> tmp, PyObject* keepalive = NULL) {
+    // Materialize the sequence into a real tuple (keepalive) so every element
+    // stays alive for the duration of the C++ call. Extracting a raw C++ pointer
+    // and DECREF-ing the element first would be unsafe for a sequence whose
+    // __getitem__ returns a fresh owning wrapper each call (the only reference
+    // would drop and the pointer would dangle). PySequence_Tuple also rejects
+    // non-sequences and reports a size error for us.
+    keepalive = PySequence_Tuple($input);
+    if (!keepalive) SWIG_exception_fail(SWIG_TypeError, "Expected a sequence of OEScalarGrid.");
+    Py_ssize_t n = PyTuple_GET_SIZE(keepalive);
     for (Py_ssize_t i = 0; i < n; ++i) {
-        PyObject* item = PySequence_GetItem($input, i);  // new ref
-        if (!item) SWIG_exception_fail(SWIG_RuntimeError, "grid sequence access failed");
+        PyObject* item = PyTuple_GET_ITEM(keepalive, i);  // borrowed (keepalive owns it)
         if (!_oeio_is_oescalargrid(item)) {
-            Py_DECREF(item);
+            Py_DECREF(keepalive); keepalive = NULL;
             SWIG_exception_fail(SWIG_TypeError, "Expected OEScalarGrid in sequence.");
         }
         void* p = _oeio_extract_swig_ptr(item);
-        Py_DECREF(item);
-        if (!p) SWIG_exception_fail(SWIG_RuntimeError, "failed to extract grid pointer");
+        if (!p) {
+            Py_DECREF(keepalive); keepalive = NULL;
+            SWIG_exception_fail(SWIG_RuntimeError, "failed to extract grid pointer");
+        }
         tmp.push_back(reinterpret_cast<OESystem::OEScalarGrid*>(p));
     }
     $1 = &tmp;
 }
+// Free the keepalive tuple after the wrapped call has consumed the pointers.
+// Null-out on the in-typemap error paths above makes this a safe no-op there.
+%typemap(freearg) const std::vector<OESystem::OEScalarGrid*>& {
+    Py_XDECREF(keepalive$argnum);
+}
 
 %typemap(in) const std::vector<const OESystem::OEScalarGrid*>&
-        (std::vector<const OESystem::OEScalarGrid*> tmp) {
-    if (!PySequence_Check($input)) {
-        SWIG_exception_fail(SWIG_TypeError, "Expected a sequence of OEScalarGrid.");
-    }
-    Py_ssize_t n = PySequence_Size($input);
+        (std::vector<const OESystem::OEScalarGrid*> tmp, PyObject* keepalive = NULL) {
+    // See the non-const overload above: hold a tuple reference so no element is
+    // freed before the C++ call reads its extracted pointer.
+    keepalive = PySequence_Tuple($input);
+    if (!keepalive) SWIG_exception_fail(SWIG_TypeError, "Expected a sequence of OEScalarGrid.");
+    Py_ssize_t n = PyTuple_GET_SIZE(keepalive);
     for (Py_ssize_t i = 0; i < n; ++i) {
-        PyObject* item = PySequence_GetItem($input, i);  // new ref
-        if (!item) SWIG_exception_fail(SWIG_RuntimeError, "grid sequence access failed");
+        PyObject* item = PyTuple_GET_ITEM(keepalive, i);  // borrowed (keepalive owns it)
         if (!_oeio_is_oescalargrid(item)) {
-            Py_DECREF(item);
+            Py_DECREF(keepalive); keepalive = NULL;
             SWIG_exception_fail(SWIG_TypeError, "Expected OEScalarGrid in sequence.");
         }
         void* p = _oeio_extract_swig_ptr(item);
-        Py_DECREF(item);
-        if (!p) SWIG_exception_fail(SWIG_RuntimeError, "failed to extract grid pointer");
+        if (!p) {
+            Py_DECREF(keepalive); keepalive = NULL;
+            SWIG_exception_fail(SWIG_RuntimeError, "failed to extract grid pointer");
+        }
         tmp.push_back(reinterpret_cast<const OESystem::OEScalarGrid*>(p));
     }
     $1 = &tmp;
+}
+%typemap(freearg) const std::vector<const OESystem::OEScalarGrid*>& {
+    Py_XDECREF(keepalive$argnum);
 }
 
 // ---- Docking (OEDocking) ----
@@ -634,8 +650,16 @@ public:
         PyObject* tup = PyTuple_New(static_cast<Py_ssize_t>(owned.size()));
         if (!tup) return NULL;
         for (std::size_t i = 0; i < owned.size(); ++i) {
-            // Copy each grid onto the heap; _oeio_wrap_as_oe_grid adopts it.
-            auto* heap = new OESystem::OEScalarGrid(owned[i]);
+            // Copy each grid onto the heap; _oeio_wrap_as_oe_grid adopts it. The
+            // copy allocates, so guard against a throw leaving the partially
+            // built tuple (and its already-inserted wrappers) leaked.
+            OESystem::OEScalarGrid* heap = nullptr;
+            try {
+                heap = new OESystem::OEScalarGrid(owned[i]);
+            } catch (...) {
+                Py_DECREF(tup);
+                throw;
+            }
             PyObject* py = _oeio_wrap_as_oe_grid(heap);
             if (!py) { Py_DECREF(tup); return NULL; }
             PyTuple_SET_ITEM(tup, static_cast<Py_ssize_t>(i), py);  // steals ref

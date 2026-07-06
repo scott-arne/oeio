@@ -1,0 +1,9 @@
+Short MO orbital header (declares 3 orbitals, supplies only 2 ids)
+Without line anchoring the third id splices the first volumetric value
+   -1    0.000000    0.000000    0.000000
+    1    0.500000    0.000000    0.000000
+    1    0.000000    0.500000    0.000000
+    2    0.000000    0.000000    0.500000
+    6    6.000000    0.000000    0.000000    0.000000
+    3    1    2
+   0.00000   1.00000   2.00000  10.00000  11.00000  12.00000
