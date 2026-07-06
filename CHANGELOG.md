@@ -5,6 +5,27 @@ All notable changes to `oeio` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-06
+
+### Added
+
+- **Gaussian CUBE file support** (`.cube`, `.cub`) — a
+  C++-first built-in handler that reads/writes a molecule plus N volumetric
+  `OEScalarGrid` datasets (N>1 for multi-orbital "MO cubes").
+  - `reader.with_grids()` iterates `(molecule, grids)` records.
+  - `reader.read_into(mol, *grids)` fills caller-owned grids (returns N, or
+    None at EOF); `reader.read_into(mol)` reads the molecule only.
+  - `writer.append(mol, *grids)` writes a CUBE (at least one grid required).
+  - New grid overloads on the C++ `MolSource`/`MolSink`/`MolRange`/`Writer`
+    interfaces (additive; non-grid formats unchanged).
+- `Reader.__next__`, so `next(reader)` returns the next molecule.
+
+### Limitations
+
+- CUBE grids must be axis-aligned with uniform (cubic-voxel) spacing;
+  rotated/skewed/anisotropic grids raise `FormatError`. Atom coordinates and
+  grid geometry are converted to Ångström on read, Bohr on write.
+
 ## [0.3.0] - 2026-07-04
 
 ### Changed (Breaking)

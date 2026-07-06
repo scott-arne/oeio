@@ -21,6 +21,7 @@ The built-in OEChem handler supports all OEChem-native formats:
 | SMILES | `.smi`, `.smi.gz`, `.ism`, `.can`            |
 | CSV    | `.csv`, `.csv.gz`                            |
 | XYZ    | `.xyz`, `.xyz.gz`                            |
+| CUBE   | `.cube`, `.cub`                              |
 | Other  | `.fasta`, `.cif`, `.mmcif`, `.mopac`, `.cdx` |
 
 Additional formats can be added through the plugin system (see
@@ -115,6 +116,37 @@ with oeio.write("output.sdf") as writer:
     for mol in oeio.read("input.sdf"):
         writer.append(mol)
 ```
+
+**Reading volumetric grids (CUBE):**
+
+```python
+import oeio
+from openeye import oechem, oegrid
+
+# A CUBE file carries a molecule plus one or more scalar grids.
+with oeio.read("density.cube") as reader:
+    for mol, grids in reader.with_grids():        # grids is a tuple of OEScalarGrid
+        print(mol.GetTitle(), "grids:", len(grids))
+
+# Molecule only (grids skipped) — same as any format
+with oeio.read("density.cube") as reader:
+    for mol in reader:
+        print(mol.GetTitle())
+
+# Zero-copy by-reference: N returned on success, None at EOF
+mol = oechem.OEMol()
+g0 = oegrid.OEScalarGrid()
+with oeio.read("density.cube") as reader:
+    while (n := reader.read_into(mol, g0)) is not None:
+        print("grid count in record:", n)
+
+# Writing a CUBE requires at least one grid
+with oeio.write("out.cube") as writer:
+    writer.append(mol, g0)
+```
+
+Only axis-aligned CUBE grids with uniform (cubic-voxel) spacing are supported;
+rotated, skewed, or anisotropic grids raise `oeio.FormatError`.
 
 **Filtering:**
 
