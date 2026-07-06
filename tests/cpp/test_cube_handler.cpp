@@ -595,6 +595,51 @@ TEST(CubeWriter, FailedWriteLeavesSinkRetryable) {
     std::filesystem::remove(good);
 }
 
+// A grid with a zero dimension cannot produce a readable CUBE. The write must
+// be rejected BEFORE opening the target, leaving any existing file intact.
+TEST(CubeWriter, ZeroDimGridRejectedAndTargetIntact) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_zerodim_" + std::to_string(getpid()) + ".cube");
+    const std::string sentinel = "EXISTING VALID FILE MUST SURVIVE\n";
+    { std::ofstream pre(tmp.string()); pre << sentinel; }
+
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g(0, 2, 2, 0.75f, 0.75f, 0.75f, 0.5f);  // zero X dim
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    std::ifstream check(tmp.string());
+    std::string contents((std::istreambuf_iterator<char>(check)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, sentinel);
+    std::filesystem::remove(tmp);
+}
+
+// A grid holding a non-finite (NaN/Inf) value must be rejected before opening,
+// so it can never truncate an existing file or emit an unreadable CUBE.
+TEST(CubeWriter, NonFiniteGridValueRejectedAndTargetIntact) {
+    auto tmp = std::filesystem::temp_directory_path() /
+               ("oeio_cube_nfval_" + std::to_string(getpid()) + ".cube");
+    const std::string sentinel = "EXISTING VALID FILE MUST SURVIVE\n";
+    { std::ofstream pre(tmp.string()); pre << sentinel; }
+
+    oeio::builtin::CubeMolSink sink(tmp.string());
+    OEChem::OEMol mol; mol.NewAtom(6);
+    OESystem::OEScalarGrid g(2, 2, 2, 0.75f, 0.75f, 0.75f, 0.5f);
+    std::vector<float> vals = {0,1,2,3,4,5,6,7};
+    vals[3] = std::numeric_limits<float>::infinity();  // non-finite value
+    g.SetValues(vals.data(), 8);
+    std::vector<const OESystem::OEScalarGrid*> grids = { &g };
+    EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    std::ifstream check(tmp.string());
+    std::string contents((std::istreambuf_iterator<char>(check)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, sentinel);
+    std::filesystem::remove(tmp);
+}
+
 // A CUBE holds exactly one record. A second write to the same sink must be
 // rejected with FormatError before opening the file, leaving the first record
 // intact (no silent truncation/overwrite via a repeated Writer append).

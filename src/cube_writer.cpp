@@ -26,6 +26,13 @@ bool same_geometry(const OESystem::OEScalarGrid& a, const OESystem::OEScalarGrid
            std::fabs(a.GetYMin() - b.GetYMin()) <= GEOM_TOL &&
            std::fabs(a.GetZMin() - b.GetZMin()) <= GEOM_TOL;
 }
+
+/// Throw FormatError unless the value is finite (no NaN/Inf).
+void require_finite(double value, const char* what) {
+    if (!std::isfinite(value)) {
+        throw FormatError(std::string("oeio: CUBE: non-finite ") + what);
+    }
+}
 }  // namespace
 
 CubeMolSink::CubeMolSink(const std::string& path) : path_(path) {}
@@ -73,6 +80,42 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
             "with no atoms");
     }
 
+    // Validate the ENTIRE serializable payload before opening the target, so an
+    // invalid grid (zero/negative dimensions, non-finite spacing/coordinates/
+    // values) is rejected without truncating an existing file and without
+    // emitting a CUBE that CubeMolSource would refuse to read back.
+    const OESystem::OEScalarGrid& g0 = *grids[0];
+    const int nx = static_cast<int>(g0.GetXDim());
+    const int ny = static_cast<int>(g0.GetYDim());
+    const int nz = static_cast<int>(g0.GetZDim());
+    if (nx < 1 || ny < 1 || nz < 1) {
+        throw FormatError("oeio: CUBE: grid dimensions must be positive");
+    }
+    const float spacing = g0.GetSpacing();
+    if (!std::isfinite(spacing) || spacing <= 0.0f) {
+        throw FormatError("oeio: CUBE: grid spacing must be finite and positive");
+    }
+    float midx, midy, midz;
+    g0.GetMid(midx, midy, midz);
+    require_finite(midx, "grid midpoint");
+    require_finite(midy, "grid midpoint");
+    require_finite(midz, "grid midpoint");
+    for (OESystem::OEIter<const OEChem::OEAtomBase> ai = mol.GetAtoms(); ai; ++ai) {
+        float xyz[3];
+        mol.GetCoords(&*ai, xyz);
+        require_finite(xyz[0], "atom coordinate");
+        require_finite(xyz[1], "atom coordinate");
+        require_finite(xyz[2], "atom coordinate");
+    }
+    const std::size_t voxels = static_cast<std::size_t>(nx) * ny * nz;
+    for (int g = 0; g < ngrid; ++g) {
+        const float* vals = grids[g]->GetValues();
+        if (!vals) throw FormatError("oeio: CUBE: grid has no values");
+        for (std::size_t vx = 0; vx < voxels; ++vx) {
+            require_finite(vals[vx], "volumetric value");
+        }
+    }
+
     std::ofstream out(path_);
     if (!out) throw FileError("oeio: unable to open '" + path_ + "' for writing");
 
@@ -81,20 +124,13 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
     // and grid values. max_digits10 for float is 9.
     out << std::setprecision(std::numeric_limits<float>::max_digits10);
 
-    const OESystem::OEScalarGrid& g0 = *grids[0];
-    const int nx = static_cast<int>(g0.GetXDim());
-    const int ny = static_cast<int>(g0.GetYDim());
-    const int nz = static_cast<int>(g0.GetZDim());
-
     // Convert Angstrom geometry back to Bohr for the file.
     const double inv = 1.0 / cube::BOHR_TO_ANGSTROM;
-    const double spacing_bohr = g0.GetSpacing() * inv;
-    float midx, midy, midz;
-    g0.GetMid(midx, midy, midz);
+    const double spacing_bohr = spacing * inv;
     const double mid_ang[3] = { midx, midy, midz };
     const int nvox[3] = { nx, ny, nz };
     double origin_ang[3];
-    cube::mid_to_origin(mid_ang, nvox, g0.GetSpacing(), origin_ang);
+    cube::mid_to_origin(mid_ang, nvox, spacing, origin_ang);
     const double origin_bohr[3] = { origin_ang[0] * inv, origin_ang[1] * inv,
                                     origin_ang[2] * inv };
 
@@ -127,8 +163,8 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
         out << "\n";
     }
 
-    // Volumetric block: orbital-fastest then z,y,x.
-    const std::size_t voxels = static_cast<std::size_t>(nx) * ny * nz;
+    // Volumetric block: orbital-fastest then z,y,x. `voxels` was computed during
+    // pre-open validation above.
     std::vector<const float*> data(ngrid);
     for (int g = 0; g < ngrid; ++g) data[g] = grids[g]->GetValues();
     for (std::size_t vx = 0; vx < voxels; ++vx) {
