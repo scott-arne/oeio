@@ -49,6 +49,22 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
         }
     }
 
+    const int ngrid = static_cast<int>(grids.size());
+    const int natom = mol.NumAtoms();
+
+    // A multi-grid CUBE is encoded as an MO cube: a NEGATIVE atom count signals
+    // the reader to consume the orbital header line. With zero atoms, negating
+    // the count yields 0, which the reader treats as a single-grid cube and then
+    // misparses the orbital header as volumetric data. There is no valid MO
+    // encoding for an atomless molecule, so reject it rather than emit a file
+    // that will not round-trip. All input validation happens BEFORE the output
+    // file is opened so a rejected write never truncates an existing file.
+    if (ngrid > 1 && natom == 0) {
+        throw FormatError(
+            "oeio: CUBE: cannot write a multi-grid (MO) cube for a molecule "
+            "with no atoms");
+    }
+
     std::ofstream out(path_);
     if (!out) throw FileError("oeio: unable to open '" + path_ + "' for writing");
 
@@ -61,7 +77,6 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
     const int nx = static_cast<int>(g0.GetXDim());
     const int ny = static_cast<int>(g0.GetYDim());
     const int nz = static_cast<int>(g0.GetZDim());
-    const int ngrid = static_cast<int>(grids.size());
 
     // Convert Angstrom geometry back to Bohr for the file.
     const double inv = 1.0 / cube::BOHR_TO_ANGSTROM;
@@ -74,19 +89,6 @@ bool CubeMolSink::write(const OEChem::OEMolBase& mol,
     cube::mid_to_origin(mid_ang, nvox, g0.GetSpacing(), origin_ang);
     const double origin_bohr[3] = { origin_ang[0] * inv, origin_ang[1] * inv,
                                     origin_ang[2] * inv };
-
-    // A multi-grid CUBE is encoded as an MO cube: a NEGATIVE atom count signals
-    // the reader to consume the orbital header line. With zero atoms, negating
-    // the count yields 0, which the reader treats as a single-grid cube and then
-    // misparses the orbital header as volumetric data. There is no valid MO
-    // encoding for an atomless molecule, so reject it rather than emit a file
-    // that will not round-trip.
-    const int natom = mol.NumAtoms();
-    if (ngrid > 1 && natom == 0) {
-        throw FormatError(
-            "oeio: CUBE: cannot write a multi-grid (MO) cube for a molecule "
-            "with no atoms");
-    }
 
     out << "CUBE file written by oeio\n";
     out << "OEScalarGrid volumetric data\n";

@@ -11,6 +11,8 @@
 #include <oegrid.h>
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <string>
@@ -535,15 +537,29 @@ TEST(CubeWriter, MismatchedOriginRaises) {
 // A multi-grid (MO) cube is signalled by a negative atom count. A zero-atom
 // molecule cannot carry that marker (-0 == 0), so a multi-grid write with no
 // atoms must be rejected rather than produce a file that would not round-trip.
+// The rejection must also happen BEFORE the output file is opened, so an
+// existing file at the target path is not truncated as a side effect.
 TEST(CubeWriter, ZeroAtomMultiGridRaises) {
     auto tmp = std::filesystem::temp_directory_path() /
                ("oeio_cube_zeroatom_" + std::to_string(getpid()) + ".cube");
+
+    // Pre-populate the target path; a rejected write must leave it intact.
+    const std::string sentinel = "PRE-EXISTING CONTENT MUST SURVIVE\n";
+    { std::ofstream pre(tmp.string()); pre << sentinel; }
+
     oeio::builtin::CubeMolSink sink(tmp.string());
     OEChem::OEMol mol;  // no atoms
     OESystem::OEScalarGrid g0(2,2,2, 0.75f,0.75f,0.75f, 0.5f);
     OESystem::OEScalarGrid g1(2,2,2, 0.75f,0.75f,0.75f, 0.5f);
     std::vector<const OESystem::OEScalarGrid*> grids = { &g0, &g1 };
     EXPECT_THROW(sink.write(mol, grids), oeio::FormatError);
+
+    // The pre-existing file must be untouched (not truncated by ofstream open).
+    std::ifstream check(tmp.string());
+    std::string contents((std::istreambuf_iterator<char>(check)),
+                         std::istreambuf_iterator<char>());
+    EXPECT_EQ(contents, sentinel);
+
     std::filesystem::remove(tmp);
 }
 
