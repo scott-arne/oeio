@@ -85,6 +85,13 @@ def mo_cube_file():
 
 
 @pytest.fixture
+def h2o_dens_cube_file():
+    """Path to the real-world water electron-density CUBE file (40^3 grid)."""
+    import pathlib
+    return str(pathlib.Path(__file__).parent.parent / "data" / "h2o-dens.cube")
+
+
+@pytest.fixture
 def multiconf_oeb(tmp_path):
     """Write a temp OEB with one 3-conformer molecule; return the path."""
     from openeye import oechem

@@ -37,6 +37,26 @@ class TestCubeRead:
         assert grids[0].GetXDim() == 2
         assert grids[0].GetValues()[7] == 7.0
 
+    def test_reads_real_water_density(self, h2o_dens_cube_file):
+        """A real-world CUBE (water electron density) yields the molecule and
+        its single 40^3 volumetric grid in one record."""
+        import oeio
+        with oeio.read(h2o_dens_cube_file) as reader:
+            rows = list(reader.with_grids())
+        assert len(rows) == 1
+        mol, grids = rows[0]
+        assert isinstance(mol, oechem.OEMol)
+        assert mol.NumAtoms() == 3
+        symbols = sorted(
+            oechem.OEGetAtomicSymbol(a.GetAtomicNum()) for a in mol.GetAtoms()
+        )
+        assert symbols == ["H", "H", "O"]
+        assert len(grids) == 1
+        grid = grids[0]
+        assert isinstance(grid, oegrid.OEScalarGrid)
+        assert (grid.GetXDim(), grid.GetYDim(), grid.GetZDim()) == (40, 40, 40)
+        assert len(grid.GetValues()) == 40 * 40 * 40
+
     def test_with_grids_mo_three(self, mo_cube_file):
         import oeio
         with oeio.read(mo_cube_file) as reader:
