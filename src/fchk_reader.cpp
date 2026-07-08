@@ -190,6 +190,10 @@ bool FchkMolSource::next(OEChem::OEGraphMol& mol) {
     return read_record(mol);
 }
 
+bool FchkMolSource::next(OEChem::OEMolBase& mol) {
+    return read_record(mol);
+}
+
 bool FchkMolSource::read_record(OEChem::OEMolBase& mol) {
     mol.Clear();
     if (consumed_) return false;

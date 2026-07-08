@@ -126,6 +126,17 @@ INSTANTIATE_TEST_SUITE_P(
         FchkRejectCase{"fchk_truncated_skip.fchk", "truncated payload"},
         FchkRejectCase{"fchk_overflow_charge.fchk", "FCHK charge out of range"}));
 
+TEST(FchkReader, ReadsTypedDataIntoOEMolBasePath) {
+    oeio::builtin::FchkMolSource src(data_path("fchk_min.fchk"));
+    OEChem::OEMol mol;  // exercises next(OEMolBase&), the path SWIG/Python uses
+    ASSERT_TRUE(src.next(mol));
+    EXPECT_EQ(mol.NumAtoms(), 2u);
+    EXPECT_TRUE(mol.HasData("Total Energy"));
+    EXPECT_NEAR(mol.GetDoubleData("Total Energy"), -75.0, 1e-9);
+    EXPECT_EQ(mol.GetIntData("Charge"), -1);
+    EXPECT_EQ(mol.GetStringData("Basis"), "STO-3G");
+}
+
 TEST(FchkReader, OptionalScalarsAbsentStillReadsGeometry) {
     oeio::builtin::FchkMolSource src(data_path("fchk_no_optional.fchk"));
     OEChem::OEGraphMol mol;

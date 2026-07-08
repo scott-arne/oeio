@@ -23,6 +23,7 @@ public:
     explicit FchkMolSource(const std::string& path);
 
     bool next(OEChem::OEGraphMol& mol) override;
+    bool next(OEChem::OEMolBase& mol) override;
 
 private:
     /// Parse the single FCHK record from path_ into mol. Returns false once the
