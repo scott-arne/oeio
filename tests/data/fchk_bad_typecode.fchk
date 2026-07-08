@@ -4,7 +4,7 @@ Number of atoms                            I                2
 Charge                                     I               -1
 Multiplicity                               I                1
 Number of electrons                        I               10
-Total Energy                               R     -7.500000000000000E+01
+Total Energy                               Q     -7.500000000000000E+01
 Atomic numbers                             I   N=           2
            8           1
 Nuclear charges                            R   N=           2
@@ -14,5 +14,5 @@ Current cartesian coordinates              R   N=           6
   1.80000000E+00
 Atom Types                                 C   N=           2
 
-Shell types                                Q   N=           3
+Shell types                                I   N=           3
            0           0           1
