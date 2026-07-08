@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cmath>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -154,6 +155,18 @@ long parse_strict_int(const std::string& tok, const char* what) {
     return v;
 }
 
+/// Parse a strict whole-integer token that must fit in `int`, for scalars stored
+/// as int typed data. Rejects values outside the int range (a 64-bit-valid long
+/// such as 9999999999 would otherwise narrow to implementation-defined garbage).
+int parse_strict_int32(const std::string& tok, const char* what) {
+    long v = parse_strict_int(tok, what);
+    if (v < static_cast<long>(std::numeric_limits<int>::min()) ||
+        v > static_cast<long>(std::numeric_limits<int>::max())) {
+        throw FormatError(std::string("oeio: ") + what + " out of range");
+    }
+    return static_cast<int>(v);
+}
+
 /// Parse a finite double token.
 double parse_finite_double(const std::string& tok, const char* what) {
     try {
@@ -247,14 +260,11 @@ bool FchkMolSource::read_record(OEChem::OEMolBase& mol) {
                 natom = parse_strict_int(value, "FCHK atom count");
                 have_natom = true;
             } else if (h.label == "Charge") {
-                mol.SetData("Charge",
-                    static_cast<int>(parse_strict_int(value, "FCHK charge")));
+                mol.SetData("Charge", parse_strict_int32(value, "FCHK charge"));
             } else if (h.label == "Multiplicity") {
-                mol.SetData("Multiplicity",
-                    static_cast<int>(parse_strict_int(value, "FCHK multiplicity")));
+                mol.SetData("Multiplicity", parse_strict_int32(value, "FCHK multiplicity"));
             } else if (h.label == "Number of electrons") {
-                mol.SetData("Number of electrons",
-                    static_cast<int>(parse_strict_int(value, "FCHK electron count")));
+                mol.SetData("Number of electrons", parse_strict_int32(value, "FCHK electron count"));
             } else if (h.label == "Total Energy") {
                 mol.SetData("Total Energy",
                     parse_finite_double(value, "FCHK total energy"));

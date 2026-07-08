@@ -121,7 +121,8 @@ INSTANTIATE_TEST_SUITE_P(
         FchkRejectCase{"fchk_coord_overflow.fchk", "non-finite or out of range"},
         FchkRejectCase{"fchk_resync_break.fchk", "lost record sync"},
         FchkRejectCase{"fchk_interior_blank.fchk", "unexpected blank line"},
-        FchkRejectCase{"fchk_truncated_skip.fchk", "truncated payload"}));
+        FchkRejectCase{"fchk_truncated_skip.fchk", "truncated payload"},
+        FchkRejectCase{"fchk_overflow_charge.fchk", "FCHK charge out of range"}));
 
 TEST(FchkReader, OptionalScalarsAbsentStillReadsGeometry) {
     oeio::builtin::FchkMolSource src(data_path("fchk_no_optional.fchk"));
