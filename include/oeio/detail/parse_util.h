@@ -78,7 +78,7 @@ inline long parse_int_token(std::istream& line, const char* what) {
 inline float to_finite_float(double value, const char* what) {
     if (!std::isfinite(value) ||
         std::fabs(value) > static_cast<double>(std::numeric_limits<float>::max())) {
-        throw FormatError(std::string("oeio: CUBE: ") + what +
+        throw FormatError(std::string("oeio: ") + what +
                           " is non-finite or out of range");
     }
     return static_cast<float>(value);
