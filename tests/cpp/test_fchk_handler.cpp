@@ -76,36 +76,52 @@ TEST(FchkReader, RealExampleReadsHofAndSkipsLargeArrays) {
     EXPECT_FALSE(src.next(mol));
 }
 
-class FchkReject : public ::testing::TestWithParam<const char*> {};
+struct FchkRejectCase {
+    const char* fixture;
+    const char* expected_message_substring;
+};
 
-TEST_P(FchkReject, MalformedFixtureThrowsFormatError) {
-    oeio::builtin::FchkMolSource src(data_path(GetParam()));
+class FchkReject : public ::testing::TestWithParam<FchkRejectCase> {};
+
+TEST_P(FchkReject, MalformedFixtureThrowsFormatErrorWithExpectedMessage) {
+    const auto& param = GetParam();
+    oeio::builtin::FchkMolSource src(data_path(param.fixture));
     OEChem::OEGraphMol mol;
-    EXPECT_THROW(src.next(mol), oeio::FormatError);
+
+    try {
+        src.next(mol);
+        FAIL() << "Expected FormatError for " << param.fixture;
+    } catch (const oeio::FormatError& e) {
+        std::string message(e.what());
+        EXPECT_NE(message.find(param.expected_message_substring), std::string::npos)
+            << "For " << param.fixture << ":\n"
+            << "  Expected substring: \"" << param.expected_message_substring << "\"\n"
+            << "  Actual message: \"" << message << "\"";
+    }
 }
 
 INSTANTIATE_TEST_SUITE_P(
     Malformed, FchkReject,
     ::testing::Values(
-        "fchk_missing_natom.fchk",
-        "fchk_missing_atomicnums.fchk",
-        "fchk_missing_coords.fchk",
-        "fchk_coord_count_mismatch.fchk",
-        "fchk_atomicnum_count_mismatch.fchk",
-        "fchk_bad_z.fchk",
-        "fchk_decimal_z.fchk",
-        "fchk_exp_z.fchk",
-        "fchk_suffix_z.fchk",
-        "fchk_nonfinite_energy.fchk",
-        "fchk_decimal_natom.fchk",
-        "fchk_bad_charge.fchk",
-        "fchk_decimal_ncount.fchk",
-        "fchk_oversized_ncount.fchk",
-        "fchk_bad_typecode.fchk",
-        "fchk_coord_overflow.fchk",
-        "fchk_resync_break.fchk",
-        "fchk_interior_blank.fchk",
-        "fchk_truncated_skip.fchk"));
+        FchkRejectCase{"fchk_missing_natom.fchk", "missing 'Number of atoms'"},
+        FchkRejectCase{"fchk_missing_atomicnums.fchk", "missing 'Atomic numbers'"},
+        FchkRejectCase{"fchk_missing_coords.fchk", "missing 'Current cartesian coordinates'"},
+        FchkRejectCase{"fchk_coord_count_mismatch.fchk", "too few values"},
+        FchkRejectCase{"fchk_atomicnum_count_mismatch.fchk", "too few values"},
+        FchkRejectCase{"fchk_bad_z.fchk", "atomic number out of range"},
+        FchkRejectCase{"fchk_decimal_z.fchk", "malformed FCHK atomic number"},
+        FchkRejectCase{"fchk_exp_z.fchk", "malformed FCHK atomic number"},
+        FchkRejectCase{"fchk_suffix_z.fchk", "malformed FCHK atomic number"},
+        FchkRejectCase{"fchk_nonfinite_energy.fchk", "malformed FCHK total energy"},
+        FchkRejectCase{"fchk_decimal_natom.fchk", "malformed FCHK atom count"},
+        FchkRejectCase{"fchk_bad_charge.fchk", "malformed FCHK charge"},
+        FchkRejectCase{"fchk_decimal_ncount.fchk", "malformed FCHK array count"},
+        FchkRejectCase{"fchk_oversized_ncount.fchk", "array count out of range"},
+        FchkRejectCase{"fchk_bad_typecode.fchk", "lost record sync"},
+        FchkRejectCase{"fchk_coord_overflow.fchk", "non-finite or out of range"},
+        FchkRejectCase{"fchk_resync_break.fchk", "lost record sync"},
+        FchkRejectCase{"fchk_interior_blank.fchk", "unexpected blank line"},
+        FchkRejectCase{"fchk_truncated_skip.fchk", "truncated payload"}));
 
 TEST(FchkReader, OptionalScalarsAbsentStillReadsGeometry) {
     oeio::builtin::FchkMolSource src(data_path("fchk_no_optional.fchk"));

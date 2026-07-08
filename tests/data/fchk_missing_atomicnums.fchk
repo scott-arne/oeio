@@ -5,6 +5,7 @@ Charge                                     I               -1
 Multiplicity                               I                1
 Number of electrons                        I               10
 Total Energy                               R     -7.500000000000000E+01
+Nuclear charges                            R   N=           2
   8.00000000E+00  1.00000000E+00
 Current cartesian coordinates              R   N=           6
   0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00
