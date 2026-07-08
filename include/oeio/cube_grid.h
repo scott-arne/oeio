@@ -5,11 +5,13 @@
 
 #include <cstddef>
 
+#include "oeio/detail/parse_util.h"
+
 namespace oeio {
 namespace cube {
 
-/// CODATA Bohr radius in Angstrom (1 Bohr = 0.52917721067 A).
-constexpr double BOHR_TO_ANGSTROM = 0.52917721067;
+/// CODATA Bohr radius in Angstrom. Single source of truth in oeio::detail.
+constexpr double BOHR_TO_ANGSTROM = detail::BOHR_TO_ANGSTROM;
 
 // Shared CUBE limits. These are the single source of truth for the bounds the
 // reader enforces on an untrusted file AND the bounds the writer refuses to
@@ -35,12 +37,12 @@ constexpr std::size_t MAX_TOTAL_ELEMENTS = MAX_TOTAL_BYTES / sizeof(float);
 /// Maximum orbital (grid) count for a multi-grid MO cube.
 constexpr int MAX_ORBITAL_COUNT = 1024;
 
-/// Highest supported atomic number (Oganesson, Z=118). Atom records outside
-/// [1, MAX_ATOMIC_NUMBER] are rejected on both read and write.
-constexpr int MAX_ATOMIC_NUMBER = 118;
+/// Highest supported atomic number (Oganesson, Z=118). Single source of truth
+/// in oeio::detail.
+constexpr int MAX_ATOMIC_NUMBER = detail::MAX_ATOMIC_NUMBER;
 
-/// Maximum atom count. Bounds the atom loop so an absurd count fails cleanly.
-constexpr long MAX_ATOM_COUNT = 100000000L;
+/// Maximum atom count. Single source of truth in oeio::detail.
+constexpr long MAX_ATOM_COUNT = detail::MAX_ATOM_COUNT;
 
 /// Raw CUBE header geometry (origin, voxel counts, and the three axis vectors),
 /// in the unit the header used (converted to Angstrom by the caller afterward).

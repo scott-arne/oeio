@@ -4,6 +4,7 @@
 #include "oeio/cube_handler.h"
 
 #include "oeio/cube_grid.h"
+#include "oeio/detail/parse_util.h"
 #include "oeio/exceptions.h"
 
 #include <cmath>
@@ -27,6 +28,9 @@ using cube::MAX_ATOMIC_NUMBER;
 using cube::MAX_ORBITAL_COUNT;
 using cube::MAX_TOTAL_ELEMENTS;
 using cube::MAX_VOXELS_PER_DIM;
+using detail::checked_abs;
+using detail::parse_int_token;
+using detail::to_finite_float;
 
 /// Read the next line of a CUBE file into a stringstream for record-anchored
 /// parsing. Fixed CUBE records occupy exactly one line each; reading a whole
@@ -60,65 +64,6 @@ std::vector<double> parse_doubles(std::istringstream& line, int count, const cha
     return out;
 }
 
-/// Absolute value of an untrusted signed count, guarding the one input whose
-/// magnitude is not representable. std::labs(LONG_MIN) is undefined behavior
-/// because -LONG_MIN overflows; reject that value (and anything that streamed
-/// as it) as malformed before taking the magnitude.
-long checked_abs(long value, const char* what) {
-    if (value == std::numeric_limits<long>::min()) {
-        throw FormatError(std::string("oeio: CUBE: ") + what + " out of range");
-    }
-    return std::labs(value);
-}
-
-/// Extract a whole integer token from a record line as a long. Reading an int
-/// count with `operator>>` accepts an integer prefix and leaves any suffix
-/// behind, so a token like "1.25" would parse as 1 and let ".25" splice into
-/// the following double field. Pull the next whitespace-delimited token and
-/// require it to be an optional sign followed by digits only, then range-check
-/// the conversion, so a malformed count is rejected rather than silently split.
-long parse_int_token(std::istream& line, const char* what) {
-    std::string tok;
-    if (!(line >> tok)) {
-        throw FormatError(std::string("oeio: CUBE: missing ") + what);
-    }
-    std::size_t i = 0;
-    if (i < tok.size() && (tok[i] == '+' || tok[i] == '-')) ++i;
-    if (i == tok.size()) {  // sign with no digits
-        throw FormatError(std::string("oeio: CUBE: malformed ") + what);
-    }
-    for (std::size_t j = i; j < tok.size(); ++j) {
-        if (tok[j] < '0' || tok[j] > '9') {
-            throw FormatError(std::string("oeio: CUBE: malformed ") + what);
-        }
-    }
-    try {
-        std::size_t consumed = 0;
-        const long value = std::stol(tok, &consumed);
-        if (consumed != tok.size()) {
-            throw FormatError(std::string("oeio: CUBE: malformed ") + what);
-        }
-        return value;
-    } catch (const std::out_of_range&) {
-        throw FormatError(std::string("oeio: CUBE: ") + what + " out of range");
-    } catch (const std::invalid_argument&) {
-        throw FormatError(std::string("oeio: CUBE: malformed ") + what);
-    }
-}
-
-/// Narrow an untrusted double to float, rejecting values that are non-finite or
-/// whose magnitude exceeds the float range. A finite double such as 1e308 passes
-/// an isfinite() check yet becomes +/-inf once cast to float; validating after
-/// unit conversion at the single point where the value is narrowed prevents a
-/// non-finite coordinate/geometry value from reaching OpenEye or OEScalarGrid.
-float to_finite_float(double value, const char* what) {
-    if (!std::isfinite(value) ||
-        std::fabs(value) > static_cast<double>(std::numeric_limits<float>::max())) {
-        throw FormatError(std::string("oeio: CUBE: ") + what +
-                          " is non-finite or out of range");
-    }
-    return static_cast<float>(value);
-}
 }  // namespace
 
 CubeMolSource::CubeMolSource(const std::string& path) : path_(path) {}
@@ -165,9 +110,9 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
 
     // Line 3: atom count + origin (a single fixed record line).
     std::istringstream atom_count_line = next_record_line(in, "atom count line");
-    const long natom_raw = parse_int_token(atom_count_line, "atom count");
+    const long natom_raw = parse_int_token(atom_count_line, "CUBE atom count");
     const bool mo_cube = natom_raw < 0;
-    const long natom = checked_abs(natom_raw, "atom count");
+    const long natom = checked_abs(natom_raw, "CUBE atom count");
     if (natom > MAX_ATOM_COUNT) {
         throw FormatError("oeio: CUBE: atom count exceeds limit (" +
                           std::to_string(MAX_ATOM_COUNT) + ")");
@@ -184,9 +129,9 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     for (int i = 0; i < 3; ++i) {
         // Each voxel count + axis vector is a single fixed record line.
         std::istringstream axis_line = next_record_line(in, "voxel count line");
-        const long nv = parse_int_token(axis_line, "voxel count");
+        const long nv = parse_int_token(axis_line, "CUBE voxel count");
         if (nv < 0) angstrom = true;   // negative voxel count -> Angstrom
-        const long nv_abs = checked_abs(nv, "voxel count");
+        const long nv_abs = checked_abs(nv, "CUBE voxel count");
         if (nv_abs < 1 || nv_abs > MAX_VOXELS_PER_DIM) {
             throw FormatError("oeio: CUBE: voxel count per dimension must be in [1, " +
                               std::to_string(MAX_VOXELS_PER_DIM) + "]");
@@ -228,9 +173,9 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
         // becomes +/-inf once cast). Validating the converted value guards the
         // coordinate that actually reaches the molecule.
         const float coords[3] = {
-            to_finite_float(atom_line[2] * to_ang, "atom coordinate"),
-            to_finite_float(atom_line[3] * to_ang, "atom coordinate"),
-            to_finite_float(atom_line[4] * to_ang, "atom coordinate")
+            to_finite_float(atom_line[2] * to_ang, "CUBE atom coordinate"),
+            to_finite_float(atom_line[3] * to_ang, "CUBE atom coordinate"),
+            to_finite_float(atom_line[4] * to_ang, "CUBE atom coordinate")
         };
         OEChem::OEAtomBase* atom = mol.NewAtom(static_cast<unsigned int>(z));
         if (!atom) {
@@ -247,14 +192,14 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     int ngrid = 1;
     if (mo_cube) {
         std::istringstream orbital_line = next_record_line(in, "orbital header line");
-        const long m = parse_int_token(orbital_line, "orbital count");
+        const long m = parse_int_token(orbital_line, "CUBE orbital count");
         if (m < 1 || m > MAX_ORBITAL_COUNT) {
             throw FormatError("oeio: CUBE: orbital count must be in [1, " +
                               std::to_string(MAX_ORBITAL_COUNT) + "]");
         }
         ngrid = static_cast<int>(m);
         for (long i = 0; i < m; ++i) {
-            parse_int_token(orbital_line, "orbital id");
+            parse_int_token(orbital_line, "CUBE orbital id");
         }
         std::string leftover;
         if (orbital_line >> leftover) {
@@ -301,7 +246,7 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
             }
             // Physical density/orbital values are finite; reject NaN/Inf (which
             // stream as valid doubles) rather than storing corrupt grid data.
-            buffers[g].push_back(to_finite_float(val, "volumetric value"));
+            buffers[g].push_back(to_finite_float(val, "CUBE volumetric value"));
         }
     }
 
@@ -312,11 +257,11 @@ bool CubeMolSource::read_record(OEChem::OEMolBase& mol,
     // float range after unit conversion, so the grid never receives a non-finite
     // midpoint or spacing.
     const float mid_f[3] = {
-        to_finite_float(mid[0], "grid midpoint"),
-        to_finite_float(mid[1], "grid midpoint"),
-        to_finite_float(mid[2], "grid midpoint")
+        to_finite_float(mid[0], "CUBE grid midpoint"),
+        to_finite_float(mid[1], "CUBE grid midpoint"),
+        to_finite_float(mid[2], "CUBE grid midpoint")
     };
-    const float spacing_f = to_finite_float(spacing_ang, "grid spacing");
+    const float spacing_f = to_finite_float(spacing_ang, "CUBE grid spacing");
     grids.reserve(ngrid);
     for (int g = 0; g < ngrid; ++g) {
         OESystem::OEScalarGrid grid(
