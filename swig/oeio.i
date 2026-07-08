@@ -497,11 +497,12 @@ using namespace oeio;
 
 // Force the linker to include oechem_handler.o and cube_handler.o from
 // liboeio.a so that their OEIO_REGISTER_FORMAT static initializers run.
-namespace oeio { void oeio_force_link_oechem_handler(); void oeio_force_link_cube_handler(); }
+namespace oeio { void oeio_force_link_oechem_handler(); void oeio_force_link_cube_handler(); void oeio_force_link_fchk_handler(); }
 static struct _OeioForceLink {
     _OeioForceLink() {
         oeio::oeio_force_link_oechem_handler();
         oeio::oeio_force_link_cube_handler();
+        oeio::oeio_force_link_fchk_handler();
     }
 } _oeio_force_link;
 %}

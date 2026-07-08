@@ -14,6 +14,8 @@
 #include "oeio/fchk_handler.h"
 #include "oeio/format_registry.h"
 
+namespace oeio { void oeio_force_link_fchk_handler(); }
+
 namespace {
 
 std::string data_path(const std::string& name) {
@@ -155,6 +157,23 @@ TEST(FchkReader, SkipsHollerithArray) {
     OEChem::OEGraphMol mol;
     ASSERT_TRUE(src.next(mol));
     EXPECT_EQ(mol.NumAtoms(), 2u);
+}
+
+TEST(FchkRegistry, ResolvesExtensionsAndIsReadOnly) {
+    oeio::oeio_force_link_fchk_handler();  // ensure the TU is linked in
+    const oeio::FormatHandler* h = oeio::FormatRegistry::instance().lookup("mol.fchk");
+    ASSERT_NE(h, nullptr);
+    EXPECT_EQ(h->info().name, "FCHK");
+    EXPECT_FALSE(h->info().supports_write);
+
+    const oeio::FormatHandler* h2 = oeio::FormatRegistry::instance().lookup("mol.fch");
+    ASSERT_NE(h2, nullptr);
+    EXPECT_EQ(h2->info().name, "FCHK");
+}
+
+TEST(FchkRegistry, MakeWriterThrows) {
+    oeio::builtin::FchkHandler handler;
+    EXPECT_THROW(handler.make_writer("out.fchk", std::any{}), oeio::FormatError);
 }
 
 }  // namespace
