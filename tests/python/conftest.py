@@ -110,3 +110,24 @@ def multiconf_oeb(tmp_path):
     oechem.OEWriteMolecule(ofs, mc)
     ofs.close()
     return path
+
+
+@pytest.fixture
+def fchk_file():
+    """Path to the real-world Gaussian FCHK test file (HOF, 3 atoms)."""
+    import pathlib
+    return str(pathlib.Path(__file__).parent.parent / "data" / "example.fchk")
+
+
+@pytest.fixture
+def fchk_min_file():
+    """Path to the minimal hand-authored FCHK test file (2 atoms)."""
+    import pathlib
+    return str(pathlib.Path(__file__).parent.parent / "data" / "fchk_min.fchk")
+
+
+@pytest.fixture
+def fchk_bad_z_file():
+    """Path to a malformed FCHK file (atomic number out of range)."""
+    import pathlib
+    return str(pathlib.Path(__file__).parent.parent / "data" / "fchk_bad_z.fchk")
