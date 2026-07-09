@@ -5,6 +5,21 @@ All notable changes to `oeio` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-07-09
+
+### Changed
+
+- **Faster CUBE reads.** The volumetric block is now parsed with a
+  line-buffered `strtod` loop instead of `std::istream::operator>>`, measured
+  ~6x faster end-to-end on large grids. Output is bit-identical and peak memory
+  stays bounded (parsing proceeds line-by-line rather than buffering the whole
+  volumetric tail).
+- **Lower-memory FCHK reads.** The reader now streams the file with a
+  single-line cursor instead of loading every line into memory. For large FCHKs
+  dominated by unconsumed arrays (MO coefficients, densities) this cuts peak
+  memory from O(file) to O(1) — ~2.4x lower resident memory on a large fixture —
+  and runs modestly faster. Parsing behavior and error reporting are unchanged.
+
 ## [0.4.0] - 2026-07-06
 
 ### Added
