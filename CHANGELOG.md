@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   memory from O(file) to O(1) — ~2.4x lower resident memory on a large fixture —
   and runs modestly faster. Parsing behavior and error reporting are unchanged.
 
+### Known limitations
+
+- **FCHK typed QM scalars require a shared OpenEye link.** The macOS and Linux
+  wheels link OpenEye shared, so FCHK scalars such as `Total Energy`, `Charge`,
+  `Multiplicity`, `Number of electrons`, and `Basis` are readable from Python by
+  string (e.g. `mol.GetData("Total Energy")`). The Windows wheel is static-linked
+  (the OpenEye C++ SDK ships static-only `.lib` on Windows), which gives oeio its
+  own OpenEye tag registry; C++-set string tags are not resolvable from Python's
+  `oechem` there, so those scalars are not visible on Windows. Molecule geometry,
+  title, and elements are unaffected on all platforms.
+
 ## [0.4.0] - 2026-07-06
 
 ### Added
