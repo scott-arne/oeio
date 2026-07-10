@@ -4,36 +4,6 @@ import pytest
 from openeye import oechem
 
 
-def _openeye_shared_build():
-    """Return True when oeio is linked *shared* against OpenEye.
-
-    A shared link means oeio and Python's ``oechem`` load the same
-    ``liboesystem`` image and therefore share one generic-data tag registry, so
-    a string tag set from C++ (``mol.SetData("Total Energy", v)``) resolves to
-    the same integer Python's ``GetData("Total Energy")`` uses. A static wheel
-    (the Windows wheel is static because the OpenEye C++ SDK ships static-only
-    ``.lib`` there) gives oeio its own registry, so C++-set string tags are not
-    visible from Python. On an unknown build we return True so a genuine
-    regression on a shared platform is never hidden by this guard.
-    """
-    try:
-        from oeio import _build_info
-    except Exception:
-        return True
-    return getattr(_build_info, "OPENEYE_LIBRARY_TYPE", "STATIC") == "SHARED"
-
-
-# FCHK typed QM scalars cross into Python only on a shared OpenEye build; skip
-# their assertions on static wheels. Molecule geometry, title, and elements are
-# unaffected and remain covered on every platform.
-requires_shared_openeye = pytest.mark.skipif(
-    not _openeye_shared_build(),
-    reason="FCHK typed QM scalars require a shared OpenEye link; the static "
-           "wheel (e.g. Windows) splits the liboesystem tag registry so a "
-           "C++-set string tag is not resolvable from Python's oechem.",
-)
-
-
 class TestFchkRead:
     def test_next_returns_oemol(self, fchk_file):
         import oeio
@@ -63,7 +33,6 @@ class TestFchkRead:
         assert zs == [1, 8, 9]  # H, O, F
         assert mol.GetTitle() == "Example"
 
-    @requires_shared_openeye
     def test_typed_qm_scalars(self, fchk_file):
         import oeio
         with oeio.read(fchk_file) as reader:
@@ -83,12 +52,6 @@ class TestFchkRead:
         with oeio.read(fchk_min_file) as reader:
             mol = next(reader)
         assert mol.NumAtoms() == 2
-
-    @requires_shared_openeye
-    def test_min_fixture_total_energy(self, fchk_min_file):
-        import oeio
-        with oeio.read(fchk_min_file) as reader:
-            mol = next(reader)
         assert mol.GetData("Total Energy") == pytest.approx(-75.0, abs=1e-9)
 
     def test_malformed_raises_format_error(self, fchk_bad_z_file):

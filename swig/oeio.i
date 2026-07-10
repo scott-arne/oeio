@@ -588,6 +588,11 @@ public:
     // Read mol + all N grids; returns a Python tuple of native OEScalarGrid
     // objects, or None at end-of-stream. Used by with_grids().
     PyObject* next_grid_tuple(OEChem::OEMolBase& mol);
+    // Enumerate the molecule's C++-set scalar generic data as (name, value)
+    // tuples, with names resolved through oeio's OpenEye tag registry. Lets a
+    // static build hand values back to Python for re-attach under Python's
+    // registry. Returns a new reference to a list.
+    PyObject* generic_data_pairs(OEChem::OEMolBase& mol);
 private:
     _ReaderHandle();
 };
@@ -666,6 +671,51 @@ public:
             PyTuple_SET_ITEM(tup, static_cast<Py_ssize_t>(i), py);  // steals ref
         }
         return tup;
+    }
+
+    /// Enumerate the molecule's scalar generic data as (name, value) tuples.
+    ///
+    /// Names are resolved through THIS module's OpenEye tag registry — the one
+    /// that set the data. When oeio is linked statically, that registry differs
+    /// from the Python oechem module's, so a string tag set from C++ is not
+    /// resolvable by name from Python; the value is physically on the molecule
+    /// but addressed by the other registry's integer. Handing (name, value) back
+    /// lets Python re-attach it under its own registry. Only scalar data
+    /// (int/double/float/bool/string) is surfaced; other data is left untouched.
+    /// Returns a new reference to a Python list of (str, value) tuples.
+    PyObject* generic_data_pairs(OEChem::OEMolBase& mol) {
+        PyObject* lst = PyList_New(0);
+        if (!lst) return NULL;
+        for (OESystem::OEIter<OESystem::OEBaseData> it = mol.GetDataIter(); it; ++it) {
+            const unsigned int tag = it->GetTag();
+            const char* name = OESystem::OEGetTag(tag);
+            if (!name || !name[0]) continue;
+            const void* dtype = it->GetDataType();
+            PyObject* val = NULL;
+            if (dtype == OESystem::OEGetDataType<int>()) {
+                val = PyLong_FromLong(mol.GetIntData(tag));
+            } else if (dtype == OESystem::OEGetDataType<double>()) {
+                val = PyFloat_FromDouble(mol.GetDoubleData(tag));
+            } else if (dtype == OESystem::OEGetDataType<float>()) {
+                val = PyFloat_FromDouble(static_cast<double>(mol.GetFloatData(tag)));
+            } else if (dtype == OESystem::OEGetDataType<bool>()) {
+                val = PyBool_FromLong(mol.GetBoolData(tag) ? 1 : 0);
+            } else if (dtype == OESystem::OEGetDataType<std::string>()) {
+                val = PyUnicode_FromString(mol.GetStringData(tag).c_str());
+            } else {
+                continue;  // non-scalar generic data: leave as-is
+            }
+            if (!val) { Py_DECREF(lst); return NULL; }
+            PyObject* pyname = PyUnicode_FromString(name);
+            if (!pyname) { Py_DECREF(val); Py_DECREF(lst); return NULL; }
+            PyObject* tup = PyTuple_Pack(2, pyname, val);
+            Py_DECREF(pyname);
+            Py_DECREF(val);
+            if (!tup) { Py_DECREF(lst); return NULL; }
+            if (PyList_Append(lst, tup) != 0) { Py_DECREF(tup); Py_DECREF(lst); return NULL; }
+            Py_DECREF(tup);
+        }
+        return lst;
     }
 
 private:
@@ -782,6 +832,28 @@ class FileError(Error):
     """Raised when a file cannot be opened or a reader/writer cannot be created."""
 
 
+def _needs_data_reattach():
+    """True when C++-set generic data must be re-attached under Python's registry.
+
+    On a shared OpenEye link, oeio and Python's ``oechem`` share one
+    ``liboesystem`` tag registry, so data set from C++ is already resolvable by
+    name from Python and re-attaching is unnecessary — skipping it keeps the read
+    hot path free of per-molecule enumeration (measured ~16% faster on a
+    SD-tagged SDF read). On a static link the registries differ and re-attach is
+    required. Unknown builds default to re-attaching (correctness over speed).
+
+    This is evaluated once at import, not per molecule.
+    """
+    try:
+        from . import _build_info
+    except Exception:
+        return True
+    return getattr(_build_info, "OPENEYE_LIBRARY_TYPE", "STATIC") != "SHARED"
+
+
+_NEEDS_DATA_REATTACH = _needs_data_reattach()
+
+
 class Reader:
     """Iterable, closeable molecule reader.
 
@@ -800,6 +872,28 @@ class Reader:
         self._handle = handle
         self._closed = False
 
+    def _reattach_cpp_data(self, mol):
+        """Make C++-set scalar generic data visible from Python by string tag.
+
+        oeio's C++ readers set typed scalars (e.g. an FCHK ``Total Energy``)
+        through their own OpenEye tag registry. On a shared OpenEye link that is
+        the same registry Python's ``oechem`` uses, so the data already resolves
+        by name and this is a no-op (``HasData`` is already True for each). On a
+        static link the two registries differ, so the value sits on the molecule
+        under the other registry's integer tag and ``GetData("Total Energy")``
+        misses; here each value is surfaced by name (resolved through oeio's
+        registry) and re-attached under Python's registry when not already
+        visible. Idempotent, so it is safe to call after every read.
+
+        Gated on a shared build (see :func:`_needs_data_reattach`) so the read
+        hot path pays nothing where re-attach would be a no-op.
+        """
+        if not _NEEDS_DATA_REATTACH:
+            return
+        for name, value in self._handle.generic_data_pairs(mol):
+            if not mol.HasData(name):
+                mol.SetData(name, value)
+
     def __iter__(self):
         from openeye import oechem
 
@@ -811,6 +905,7 @@ class Reader:
                 raise ValueError("I/O operation on closed reader")
             if not self._handle.next(mol):
                 break
+            self._reattach_cpp_data(mol)
             yield mol
             mol = oechem.OEMol()
 
@@ -831,6 +926,7 @@ class Reader:
         mol = oechem.OEMol()
         if not self._handle.next(mol):
             raise StopIteration
+        self._reattach_cpp_data(mol)
         return mol
 
     def read_into(self, mol, *grids):
@@ -852,8 +948,13 @@ class Reader:
         if self._closed:
             raise ValueError("I/O operation on closed reader")
         if not grids:
-            return self._handle.next(mol)
+            ok = self._handle.next(mol)
+            if ok:
+                self._reattach_cpp_data(mol)
+            return ok
         n = self._handle.next_grids(mol, list(grids))
+        if n >= 0:
+            self._reattach_cpp_data(mol)
         return None if n < 0 else n
 
     def with_grids(self):
@@ -878,6 +979,7 @@ class Reader:
             grids = self._handle.next_grid_tuple(mol)
             if grids is None:
                 break
+            self._reattach_cpp_data(mol)
             yield mol, grids
 
     def as_type(self, cls):
@@ -903,6 +1005,7 @@ class Reader:
                 raise ValueError("I/O operation on closed reader")
             if not self._handle.next(mol):
                 break
+            self._reattach_cpp_data(mol)
             yield mol
             mol = cls()
 
