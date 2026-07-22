@@ -570,9 +570,6 @@ from .oeio import (
     _mol_from_string,
     _mol_to_bytes,
     _mol_from_bytes,
-    _mol_to_bytes_bridged,
-    _mol_to_string_bridged,
-    _scalar_generic_data,
     _resolve_format,
     _NEEDS_DATA_REATTACH,
 )
@@ -787,71 +784,6 @@ def _new_mol(mol_type):
     return mol_type()
 
 
-def _reattach_after_from(mol):
-    """Re-key C++-set scalar generic data under Python's registry (static builds).
-
-    On a static build ``mol_from_*`` sets named scalar data under oeio's tag
-    registry, which is invisible to Python by name. Re-key each item under
-    Python's registry and delete the oeio-keyed copy (a move, not a copy, so no
-    duplication). No-op on shared builds, where the two registries coincide.
-
-    :param mol: The molecule just populated by a ``from_*`` call.
-    """
-    if not _NEEDS_DATA_REATTACH:
-        return
-    for name, value, tag in _scalar_generic_data(mol):
-        if not mol.HasData(name):
-            mol.SetData(name, value)
-            mol.DeleteData(tag)
-
-
-def _has_generic_data(mol):
-    """Return ``True`` if the molecule carries any molecule-level generic data.
-
-    A cheap peek used to decide whether the static-build serialize bridge is
-    needed; data-free molecules skip the bridge entirely.
-
-    :param mol: The molecule to inspect.
-    :returns: ``True`` if any generic-data item is present.
-    """
-    for _ in mol.GetDataIter():
-        return True
-    return False
-
-
-def _scalar_pairs_for_bridge(mol):
-    """Return parallel ``(names, values)`` lists of the molecule's scalar data.
-
-    Names are enumerated through Python's ``oechem`` registry so they are
-    correct at the caller side; the C++ bridge re-sets them under oeio's
-    registry. Non-scalar values are out of contract and filtered by the bridge.
-
-    :param mol: The molecule whose scalar generic data to collect.
-    :returns: A ``(names, values)`` tuple of parallel lists.
-    """
-    from openeye import oechem
-
-    names, values = [], []
-    for dp in mol.GetDataIter():
-        name = oechem.OEGetTag(dp.GetTag())
-        if not name:
-            continue
-        if not mol.HasData(name):
-            continue
-        try:
-            value = mol.GetData(name)
-        except Exception:
-            # Non-convertible datum (e.g. an SD-tag container set via
-            # OESetSDData) is out of the scalar contract; skip it rather than
-            # let GetData raise. Mirrors the C++ _scalar_generic_data set.
-            continue
-        if isinstance(value, (bool, int, float, str)):
-            names.append(name)
-            values.append(value)
-        # else: non-scalar generic data -> out of the scalar contract, skip
-    return names, values
-
-
 def to_bytes(mol, format="oeb", flavor=None, gzip=False):
     """Serialize a single molecule to binary ``bytes`` (default OEB).
 
@@ -864,9 +796,15 @@ def to_bytes(mol, format="oeb", flavor=None, gzip=False):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
-    if _NEEDS_DATA_REATTACH and _has_generic_data(mol):
-        names, values = _scalar_pairs_for_bridge(mol)
-        return _mol_to_bytes_bridged(mol, names, values, fmt, fl, bool(gzip))
+    if _NEEDS_DATA_REATTACH:
+        # Static build: serialize directly through OpenEye's Python oechem so all
+        # molecule data (incl. SD tags) round-trips under the one shared registry.
+        from openeye import oechem
+
+        if not oechem.OEIsWriteable(fmt):
+            raise FormatError("oeio: format is not writeable as bytes")
+        oflavor = fl if fl != 0 else oechem.OEGetDefaultOFlavor(fmt)
+        return oechem.OEWriteMolToBytes(fmt, oflavor, bool(gzip), mol)
     return _mol_to_bytes(mol, fmt, fl, bool(gzip))
 
 
@@ -887,9 +825,16 @@ def from_bytes(data, format="oeb", flavor=None, gzip=False, mol_type=None):
     mol = _new_mol(oechem.OEMol if mol_type is None else mol_type)
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
+    if _NEEDS_DATA_REATTACH:
+        # Static build: read directly through oechem (one registry, full fidelity).
+        if not oechem.OEIsReadable(fmt):
+            raise FormatError("oeio: format is not readable from bytes")
+        iflavor = fl if fl != 0 else oechem.OEGetDefaultIFlavor(fmt)
+        if not oechem.OEReadMolFromBytes(mol, fmt, iflavor, bool(gzip), data):
+            raise FormatError("oeio: failed to parse molecule from bytes")
+        return mol
     if not _mol_from_bytes(mol, data, fmt, fl, bool(gzip)):
         raise FormatError("oeio: failed to parse molecule from bytes")
-    _reattach_after_from(mol)
     return mol
 
 
@@ -901,10 +846,14 @@ def from_bytes_into(mol, data, format="oeb", flavor=None, gzip=False):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
-    ok = _mol_from_bytes(mol, data, fmt, fl, bool(gzip))
-    if ok:
-        _reattach_after_from(mol)
-    return ok
+    if _NEEDS_DATA_REATTACH:
+        from openeye import oechem
+
+        if not oechem.OEIsReadable(fmt):
+            raise FormatError("oeio: format is not readable from bytes")
+        iflavor = fl if fl != 0 else oechem.OEGetDefaultIFlavor(fmt)
+        return oechem.OEReadMolFromBytes(mol, fmt, iflavor, bool(gzip), data)
+    return _mol_from_bytes(mol, data, fmt, fl, bool(gzip))
 
 
 def to_string(mol, format, flavor=None):
@@ -918,9 +867,14 @@ def to_string(mol, format, flavor=None):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
-    if _NEEDS_DATA_REATTACH and _has_generic_data(mol):
-        names, values = _scalar_pairs_for_bridge(mol)
-        return _mol_to_string_bridged(mol, names, values, fmt, fl)
+    if _NEEDS_DATA_REATTACH:
+        # Static build: serialize directly through oechem (full fidelity).
+        from openeye import oechem
+
+        if not oechem.OEIsWriteable(fmt):
+            raise FormatError("oeio: format is not writeable as a string")
+        oflavor = fl if fl != 0 else oechem.OEGetDefaultOFlavor(fmt)
+        return oechem.OEWriteMolToString(fmt, oflavor, False, mol)
     return _mol_to_string(mol, fmt, fl)
 
 
@@ -939,9 +893,16 @@ def from_string(data, format, flavor=None, mol_type=None):
     mol = _new_mol(oechem.OEMol if mol_type is None else mol_type)
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
+    if _NEEDS_DATA_REATTACH:
+        # Static build: read directly through oechem (one registry, full fidelity).
+        if not oechem.OEIsReadable(fmt):
+            raise FormatError("oeio: format is not readable from a string")
+        iflavor = fl if fl != 0 else oechem.OEGetDefaultIFlavor(fmt)
+        if not oechem.OEReadMolFromString(mol, fmt, iflavor, False, data):
+            raise FormatError("oeio: failed to parse molecule from string")
+        return mol
     if not _mol_from_string(mol, data, fmt, fl):
         raise FormatError("oeio: failed to parse molecule from string")
-    _reattach_after_from(mol)
     return mol
 
 
@@ -952,10 +913,14 @@ def from_string_into(mol, data, format, flavor=None):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
-    ok = _mol_from_string(mol, data, fmt, fl)
-    if ok:
-        _reattach_after_from(mol)
-    return ok
+    if _NEEDS_DATA_REATTACH:
+        from openeye import oechem
+
+        if not oechem.OEIsReadable(fmt):
+            raise FormatError("oeio: format is not readable from a string")
+        iflavor = fl if fl != 0 else oechem.OEGetDefaultIFlavor(fmt)
+        return oechem.OEReadMolFromString(mol, fmt, iflavor, False, data)
+    return _mol_from_string(mol, data, fmt, fl)
 
 
 _load_plugins()

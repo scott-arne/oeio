@@ -67,13 +67,15 @@ class TestString:
 
 
 class TestGenericDataPreservation:
-    """SD/generic-data must survive round-trips on both shared and static builds.
+    """Molecule data must survive round-trips at full fidelity on all builds.
 
-    Single-molecule OEB/SDF reads drop molecule-level generic/SD data when the
-    target is an ``OEMol`` but preserve it into an ``OEGraphMol`` (inherent
-    OpenEye behavior, unrelated to the registry bridge), so the single-molecule
-    assertions read back into ``OEGraphMol``. The multi-conformer case uses an
-    ``OEMol`` source and target, which preserves molecule-level data.
+    Both engines are full-fidelity: on shared builds oeio's C++ is the engine;
+    on static builds serialization goes directly through OpenEye's Python
+    ``oechem`` (one tag registry). Single-molecule OEB/SDF reads drop
+    molecule-level generic/SD data into an ``OEMol`` but preserve it into an
+    ``OEGraphMol`` (inherent OpenEye single-mol-into-OEMol behavior), so the
+    single-molecule assertions read back into ``OEGraphMol``. The multi-conformer
+    case uses an ``OEMol`` source and target, which preserves molecule-level data.
     """
 
     def test_oeb_bytes_preserves_generic_data(self):
@@ -92,7 +94,25 @@ class TestGenericDataPreservation:
         oechem.OESetSDData(m, "k", "v")
         s = oeio.to_string(m, "sdf")
         back = oeio.from_string(s, "sdf", mol_type=oechem.OEGraphMol)
+        assert oechem.OEHasSDData(back, "k")
         assert oechem.OEGetSDData(back, "k") == "v"
+
+    def test_sdf_string_sd_tag_round_trip(self):
+        # Full-fidelity SD tag survives to_string/from_string (sdf).
+        m = _ethanol()
+        oechem.OESetSDData(m, "prop", "hello")
+        back = oeio.from_string(oeio.to_string(m, "sdf"), "sdf",
+                                mol_type=oechem.OEGraphMol)
+        assert oechem.OEHasSDData(back, "prop")
+        assert oechem.OEGetSDData(back, "prop") == "hello"
+
+    def test_oeb_bytes_sd_tag_round_trip(self):
+        # SD tags survive to_bytes/from_bytes (oeb) as well.
+        m = _ethanol()
+        oechem.OESetSDData(m, "prop", "hello")
+        back = oeio.from_bytes(oeio.to_bytes(m), mol_type=oechem.OEGraphMol)
+        assert oechem.OEHasSDData(back, "prop")
+        assert oechem.OEGetSDData(back, "prop") == "hello"
 
     def test_no_duplicate_data_after_from_bytes(self):
         m = _ethanol()
@@ -103,8 +123,7 @@ class TestGenericDataPreservation:
         assert names.count("energy") == 1
 
     def test_multiconformer_with_data_round_trip(self):
-        # Exercises the type-preserving bridged temp: conformers AND molecule
-        # scalar data must both survive (the serialize bridge must not flatten).
+        # Conformers AND molecule scalar data must both survive an OEB round-trip.
         mol = oechem.OEMol()
         oechem.OESmilesToMol(mol, "CCO")
         oechem.OEAddExplicitHydrogens(mol)
@@ -116,99 +135,6 @@ class TestGenericDataPreservation:
         back = oeio.from_bytes(oeio.to_bytes(mol))   # OEB
         assert back.NumConfs() == mol.NumConfs()
         assert back.GetData("energy") == pytest.approx(-1.25)
-
-
-class TestBridgeDirect:
-    """Exercise the low-level serialize bridge directly (all builds).
-
-    On a shared build ``_NEEDS_DATA_REATTACH`` is False, so ``to_bytes``/
-    ``to_string`` never route through the bridge; nothing else covers the
-    type-preserving temp. These call the bridged C++ helpers directly, building
-    ``names``/``values`` exactly as ``_scalar_pairs_for_bridge`` would, so the
-    bridge is exercised on every build.
-    """
-
-    def test_bridged_bytes_preserves_title_and_data(self):
-        # Regression: a single-conformer OEB written from an OEMol temp drops the
-        # molecule title; the bridge must use an OEGraphMol temp so it survives.
-        m = _ethanol()  # titled single-conformer OEGraphMol
-        m.SetData("energy", -175.46)
-        names, values = oeio._scalar_pairs_for_bridge(m)
-        b = oeio._mol_to_bytes_bridged(m, names, values, oechem.OEFormat_OEB, 0, False)
-        back = oechem.OEGraphMol()
-        assert oeio._mol_from_bytes(back, b, oechem.OEFormat_OEB, 0, False)
-        assert back.GetTitle() == "ethanol"
-        assert back.GetData("energy") == pytest.approx(-175.46)
-
-    def test_bridged_bytes_multiconformer_preserves_confs_and_data(self):
-        mol = oechem.OEMol()
-        oechem.OESmilesToMol(mol, "CCO")
-        oechem.OEAddExplicitHydrogens(mol)
-        src = oechem.OEMol(mol)
-        for conf in src.GetConfs():
-            mol.NewConf(conf)
-        assert mol.NumConfs() > 1
-        mol.SetData("energy", -1.25)
-        names, values = oeio._scalar_pairs_for_bridge(mol)
-        b = oeio._mol_to_bytes_bridged(mol, names, values, oechem.OEFormat_OEB, 0, False)
-        back = oechem.OEMol()
-        assert oeio._mol_from_bytes(back, b, oechem.OEFormat_OEB, 0, False)
-        assert back.NumConfs() == mol.NumConfs()
-        assert back.GetData("energy") == pytest.approx(-1.25)
-
-    def test_bridged_string_sdf_preserves_title(self):
-        m = _ethanol()
-        m.SetData("energy", -175.46)
-        names, values = oeio._scalar_pairs_for_bridge(m)
-        s = oeio._mol_to_string_bridged(m, names, values, oechem.OEFormat_SDF, 0)
-        assert isinstance(s, str)
-        back = oechem.OEGraphMol()
-        assert oeio._mol_from_string(back, s, oechem.OEFormat_SDF, 0)
-        assert back.GetTitle() == "ethanol"
-
-    def test_bridged_length_mismatch_raises_and_leaves_mol_unchanged(self):
-        # Mismatched name/value lengths must fail closed (raise, not crash) and
-        # leave the caller's molecule untouched (only the throwaway temp is built).
-        m = _ethanol()
-        m.SetData("energy", -1.0)
-        before_title = m.GetTitle()
-        before_energy = m.GetData("energy")
-        with pytest.raises(Exception):
-            oeio._mol_to_bytes_bridged(m, ["a", "b"], [1], oechem.OEFormat_OEB, 0, False)
-        assert m.GetTitle() == before_title
-        assert m.GetData("energy") == before_energy
-        names = [oechem.OEGetTag(dp.GetTag()) for dp in m.GetDataIter()]
-        assert names.count("energy") == 1
-
-    def test_scalar_pairs_for_bridge_skips_non_scalar_data(self):
-        # Non-scalar generic data (e.g. an SD tag set via OESetSDData) must be
-        # skipped, not passed to GetData (which raises for non-convertible tags).
-        # This is the static-build crash path for to_bytes/to_string.
-        m = oechem.OEGraphMol()
-        oechem.OESmilesToMol(m, "CCO")
-        m.SetData("energy", -1.5)
-        m.SetData("count", 3)
-        oechem.OESetSDData(m, "sdk", "sdv")  # non-scalar generic data
-        names, values = oeio._scalar_pairs_for_bridge(m)
-        pairs = dict(zip(names, values))
-        assert pairs.get("energy") == -1.5
-        assert pairs.get("count") == 3
-        assert "sdk" not in names
-
-    def test_bridged_out_of_int32_raises_not_truncates(self):
-        # A value that fits C long but not int32 must fail closed rather than
-        # silently truncate; the caller's molecule must be untouched.
-        m = _ethanol()
-        m.SetData("energy", -1.0)
-        with pytest.raises(Exception):
-            oeio._mol_to_bytes_bridged(m, ["big"], [2**40], oechem.OEFormat_OEB, 0, False)
-        assert not m.HasData("big")
-        assert m.GetData("energy") == -1.0
-        # An in-range int still round-trips fine through the bridged path.
-        b = oeio._mol_to_bytes_bridged(m, ["n"], [2**30], oechem.OEFormat_OEB, 0, False)
-        back = oechem.OEGraphMol()
-        assert oeio._mol_from_bytes(back, b, oechem.OEFormat_OEB, 0, False)
-        assert back.GetData("n") == 2**30
 
 
 class TestErrors:
