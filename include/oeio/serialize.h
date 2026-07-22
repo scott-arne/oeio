@@ -48,4 +48,31 @@ bool mol_from_string(OEChem::OEMolBase& mol, const std::string& data,
 bool mol_from_string(OEChem::OEMolBase& mol, const std::string& data,
                      const std::string& fmt, unsigned flavor = 0);
 
+/// \brief Serialize a molecule to binary bytes (default OEB).
+/// \param mol The molecule (single- or multi-conformer; dispatch is internal).
+/// \param fmt An OEFormat code (defaults to OEB).
+/// \param flavor Output flavor; 0 uses the per-format default.
+/// \param gzip Whether to gzip-compress the output.
+/// \returns The serialized bytes as a std::string.
+/// \raises FormatError if the format is not writeable.
+std::string mol_to_bytes(const OEChem::OEMolBase& mol,
+                         unsigned fmt = OEChem::OEFormat::OEB,
+                         unsigned flavor = 0, bool gzip = false);
+
+/// \brief String-format overload of mol_to_bytes.
+std::string mol_to_bytes(const OEChem::OEMolBase& mol, const std::string& fmt,
+                         unsigned flavor = 0, bool gzip = false);
+
+/// \brief Parse a molecule from binary bytes (default OEB).
+/// \returns true if a molecule was read, false otherwise.
+/// \raises FormatError if the format is not readable.
+bool mol_from_bytes(OEChem::OEMolBase& mol, const std::string& data,
+                    unsigned fmt = OEChem::OEFormat::OEB,
+                    unsigned flavor = 0, bool gzip = false);
+
+/// \brief String-format overload of mol_from_bytes.
+bool mol_from_bytes(OEChem::OEMolBase& mol, const std::string& data,
+                    const std::string& fmt, unsigned flavor = 0,
+                    bool gzip = false);
+
 }  // namespace oeio

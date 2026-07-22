@@ -91,4 +91,30 @@ bool mol_from_string(OEChem::OEMolBase& mol, const std::string& data,
     return mol_from_string(mol, data, resolve_format(fmt), flavor);
 }
 
+std::string mol_to_bytes(const OEChem::OEMolBase& mol, unsigned fmt,
+                         unsigned flavor, bool gzip) {
+    if (!OEChem::OEIsWriteable(fmt)) {
+        throw FormatError("oeio: format is not writeable as bytes");
+    }
+    return write_dispatch(mol, fmt, flavor, gzip);
+}
+
+std::string mol_to_bytes(const OEChem::OEMolBase& mol, const std::string& fmt,
+                         unsigned flavor, bool gzip) {
+    return mol_to_bytes(mol, resolve_format(fmt), flavor, gzip);
+}
+
+bool mol_from_bytes(OEChem::OEMolBase& mol, const std::string& data,
+                    unsigned fmt, unsigned flavor, bool gzip) {
+    if (!OEChem::OEIsReadable(fmt)) {
+        throw FormatError("oeio: format is not readable from bytes");
+    }
+    return read_dispatch(mol, data, fmt, flavor, gzip);
+}
+
+bool mol_from_bytes(OEChem::OEMolBase& mol, const std::string& data,
+                    const std::string& fmt, unsigned flavor, bool gzip) {
+    return mol_from_bytes(mol, data, resolve_format(fmt), flavor, gzip);
+}
+
 }  // namespace oeio
