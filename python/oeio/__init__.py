@@ -570,6 +570,9 @@ from .oeio import (
     _mol_from_string,
     _mol_to_bytes,
     _mol_from_bytes,
+    _mol_to_bytes_bridged,
+    _mol_to_string_bridged,
+    _scalar_generic_data,
     _resolve_format,
     _NEEDS_DATA_REATTACH,
 )
@@ -787,10 +790,57 @@ def _new_mol(mol_type):
 def _reattach_after_from(mol):
     """Re-key C++-set scalar generic data under Python's registry (static builds).
 
-    No-op on shared builds; the static-build implementation is added in the
-    serialize-bridge task.
+    On a static build ``mol_from_*`` sets named scalar data under oeio's tag
+    registry, which is invisible to Python by name. Re-key each item under
+    Python's registry and delete the oeio-keyed copy (a move, not a copy, so no
+    duplication). No-op on shared builds, where the two registries coincide.
+
+    :param mol: The molecule just populated by a ``from_*`` call.
     """
-    return
+    if not _NEEDS_DATA_REATTACH:
+        return
+    for name, value, tag in _scalar_generic_data(mol):
+        if not mol.HasData(name):
+            mol.SetData(name, value)
+            mol.DeleteData(tag)
+
+
+def _has_scalar_data(mol):
+    """Return ``True`` if the molecule carries any molecule-level generic data.
+
+    A cheap peek used to decide whether the static-build serialize bridge is
+    needed; data-free molecules skip the bridge entirely.
+
+    :param mol: The molecule to inspect.
+    :returns: ``True`` if any generic-data item is present.
+    """
+    for _ in mol.GetDataIter():
+        return True
+    return False
+
+
+def _scalar_pairs_for_bridge(mol):
+    """Return parallel ``(names, values)`` lists of the molecule's scalar data.
+
+    Names are enumerated through Python's ``oechem`` registry so they are
+    correct at the caller side; the C++ bridge re-sets them under oeio's
+    registry. Non-scalar values are out of contract and filtered by the bridge.
+
+    :param mol: The molecule whose scalar generic data to collect.
+    :returns: A ``(names, values)`` tuple of parallel lists.
+    """
+    from openeye import oechem
+
+    names, values = [], []
+    for dp in mol.GetDataIter():
+        name = oechem.OEGetTag(dp.GetTag())
+        if not name:
+            continue
+        if not mol.HasData(name):
+            continue
+        names.append(name)
+        values.append(mol.GetData(name))
+    return names, values
 
 
 def to_bytes(mol, format="oeb", flavor=None, gzip=False):
@@ -805,6 +855,9 @@ def to_bytes(mol, format="oeb", flavor=None, gzip=False):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
+    if _NEEDS_DATA_REATTACH and _has_scalar_data(mol):
+        names, values = _scalar_pairs_for_bridge(mol)
+        return _mol_to_bytes_bridged(mol, names, values, fmt, fl, bool(gzip))
     return _mol_to_bytes(mol, fmt, fl, bool(gzip))
 
 
@@ -856,6 +909,9 @@ def to_string(mol, format, flavor=None):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
+    if _NEEDS_DATA_REATTACH and _has_scalar_data(mol):
+        names, values = _scalar_pairs_for_bridge(mol)
+        return _mol_to_string_bridged(mol, names, values, fmt, fl)
     return _mol_to_string(mol, fmt, fl)
 
 

@@ -66,6 +66,58 @@ class TestString:
         assert oechem.OEGetSDData(back, "prop") == "42"
 
 
+class TestGenericDataPreservation:
+    """SD/generic-data must survive round-trips on both shared and static builds.
+
+    Single-molecule OEB/SDF reads drop molecule-level generic/SD data when the
+    target is an ``OEMol`` but preserve it into an ``OEGraphMol`` (inherent
+    OpenEye behavior, unrelated to the registry bridge), so the single-molecule
+    assertions read back into ``OEGraphMol``. The multi-conformer case uses an
+    ``OEMol`` source and target, which preserves molecule-level data.
+    """
+
+    def test_oeb_bytes_preserves_generic_data(self):
+        m = _ethanol()
+        m.SetData("energy", -175.46)
+        m.SetData("label", "abc")
+        m.SetData("count", 7)
+        b = oeio.to_bytes(m)             # OEB
+        back = oeio.from_bytes(b, mol_type=oechem.OEGraphMol)
+        assert back.GetData("energy") == pytest.approx(-175.46)
+        assert back.GetData("label") == "abc"
+        assert back.GetData("count") == 7
+
+    def test_sdf_string_preserves_generic_data(self):
+        m = _ethanol()
+        oechem.OESetSDData(m, "k", "v")
+        s = oeio.to_string(m, "sdf")
+        back = oeio.from_string(s, "sdf", mol_type=oechem.OEGraphMol)
+        assert oechem.OEGetSDData(back, "k") == "v"
+
+    def test_no_duplicate_data_after_from_bytes(self):
+        m = _ethanol()
+        m.SetData("energy", 1.5)
+        back = oeio.from_bytes(oeio.to_bytes(m), mol_type=oechem.OEGraphMol)
+        # Exactly one generic-data item named "energy" and no stray items.
+        names = [oechem.OEGetTag(dp.GetTag()) for dp in back.GetDataIter()]
+        assert names.count("energy") == 1
+
+    def test_multiconformer_with_data_round_trip(self):
+        # Exercises the type-preserving bridged temp: conformers AND molecule
+        # scalar data must both survive (the serialize bridge must not flatten).
+        mol = oechem.OEMol()
+        oechem.OESmilesToMol(mol, "CCO")
+        oechem.OEAddExplicitHydrogens(mol)
+        src = oechem.OEMol(mol)
+        for conf in src.GetConfs():
+            mol.NewConf(conf)
+        assert mol.NumConfs() > 1
+        mol.SetData("energy", -1.25)
+        back = oeio.from_bytes(oeio.to_bytes(mol))   # OEB
+        assert back.NumConfs() == mol.NumConfs()
+        assert back.GetData("energy") == pytest.approx(-1.25)
+
+
 class TestErrors:
     def test_unknown_format_raises(self):
         with pytest.raises(oeio.FormatError):

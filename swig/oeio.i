@@ -604,6 +604,71 @@ struct WriterConfig {
 // typedef) which would reference an undeclared res$argnum for this type.
 %typemap(freearg) const oeio::Bytes& "";
 
+// Compile-only helper (not SWIG-wrapped, like the static helpers above) for the
+// static-build serialize bridge. Defined ahead of the %inline bridge entry
+// points that call it.
+%{
+namespace oeio {
+// Build a temp molecule carrying the caller-supplied scalar generic data under
+// THIS module's OpenEye tag registry, so the subsequent serialize keys names
+// through the same registry that will read them back. Used on static builds
+// where the caller's molecule keys its named data under Python's (different)
+// registry. `names`/`values` are parallel Python sequences of scalar generic
+// data. No transient duplication on any live molecule: the temp's copied
+// (stale-registry) data is cleared before the correctly-named pairs are set.
+static void _build_bridged_temp(OEChem::OEMol& temp, OEChem::OEMolBase& mol,
+                                PyObject* names, PyObject* values) {
+    // Type-preserving copy: route a genuine multi-conformer source through the
+    // OEMCMolBase overload so all conformers survive; OECopyMol otherwise
+    // resolves on the static OEMolBase& type and flattens to one conformer.
+    if (auto* mc = dynamic_cast<OEChem::OEMCMolBase*>(&mol)) {
+        OEChem::OECopyMol(temp, *mc);             // structure + all conformers
+    } else {
+        // Cast the destination to OEMolBase& so the OEMolBase overload is
+        // selected unambiguously (temp is an OEMol, so an unqualified call is
+        // ambiguous between the OEMolBase and OEMCMolBase overloads).
+        OEChem::OECopyMol(static_cast<OEChem::OEMolBase&>(temp), mol);
+    }
+    // temp now carries structure + stale (caller-registry) data tags. Clear all
+    // generic data (collect tags first; cannot delete while iterating).
+    std::vector<unsigned int> tags;
+    for (OESystem::OEIter<OESystem::OEBaseData> it = temp.GetDataIter(); it; ++it)
+        tags.push_back(it->GetTag());
+    for (unsigned int t : tags) temp.DeleteData(t);
+    // Set the caller-supplied pairs under this module's registry (by name).
+    // PyBool_Check precedes PyLong_Check because bool is a subclass of int.
+    // SWIG_PyUnicode_AsUTF8AndSize (not PyUnicode_AsUTF8) is used so this
+    // compiles under the Python limited/stable ABI this module targets; the
+    // returned char* stays valid only while its companion bytes object lives.
+    Py_ssize_t n = PySequence_Size(names);
+    for (Py_ssize_t i = 0; i < n; ++i) {
+        PyObject* nm = PySequence_GetItem(names, i);   // new ref
+        PyObject* vv = PySequence_GetItem(values, i);  // new ref
+        PyObject* nmbytes = nullptr;
+        const char* name = nm ? SWIG_PyUnicode_AsUTF8AndSize(nm, nullptr, &nmbytes)
+                              : nullptr;
+        if (name) {
+            if (PyBool_Check(vv)) {
+                temp.SetData(name, vv == Py_True);
+            } else if (PyLong_Check(vv)) {
+                temp.SetData(name, static_cast<int>(PyLong_AsLong(vv)));
+            } else if (PyFloat_Check(vv)) {
+                temp.SetData(name, PyFloat_AsDouble(vv));
+            } else if (PyUnicode_Check(vv)) {
+                PyObject* vbytes = nullptr;
+                const char* sval = SWIG_PyUnicode_AsUTF8AndSize(vv, nullptr, &vbytes);
+                if (sval) temp.SetData(name, std::string(sval));
+                Py_XDECREF(vbytes);
+            }
+            // Non-scalar values are out of contract and skipped.
+        }
+        Py_XDECREF(nmbytes);
+        Py_XDECREF(nm); Py_XDECREF(vv);
+    }
+}
+}  // namespace oeio
+%}
+
 %inline %{
 namespace oeio {
 // Alias so the typemaps above bind only to the bytes entry points.
@@ -630,6 +695,67 @@ bool _mol_from_bytes(OEChem::OEMolBase& mol, const Bytes& data, unsigned fmt,
 }
 
 unsigned _resolve_format(const std::string& fmt) { return resolve_format(fmt); }
+
+// Enumerate molecule-level scalar generic data as (name, value, tag) triples,
+// names resolved through THIS module's OpenEye tag registry. Returns a new
+// reference to a Python list. Mirrors the historical _ReaderHandle body but is
+// callable without a reader handle; generic_data_pairs now projects its
+// (name, value) 2-tuples from this function. Only scalar data
+// (int/double/float/bool/string) is surfaced; other data is skipped.
+PyObject* _scalar_generic_data(OEChem::OEMolBase& mol) {
+    PyObject* lst = PyList_New(0);
+    if (!lst) return NULL;
+    for (OESystem::OEIter<OESystem::OEBaseData> it = mol.GetDataIter(); it; ++it) {
+        const unsigned int tag = it->GetTag();
+        const char* name = OESystem::OEGetTag(tag);
+        if (!name || !name[0]) continue;
+        const void* dtype = it->GetDataType();
+        PyObject* val = NULL;
+        if (dtype == OESystem::OEGetDataType<int>()) {
+            val = PyLong_FromLong(mol.GetIntData(tag));
+        } else if (dtype == OESystem::OEGetDataType<double>()) {
+            val = PyFloat_FromDouble(mol.GetDoubleData(tag));
+        } else if (dtype == OESystem::OEGetDataType<float>()) {
+            val = PyFloat_FromDouble(static_cast<double>(mol.GetFloatData(tag)));
+        } else if (dtype == OESystem::OEGetDataType<bool>()) {
+            val = PyBool_FromLong(mol.GetBoolData(tag) ? 1 : 0);
+        } else if (dtype == OESystem::OEGetDataType<std::string>()) {
+            val = PyUnicode_FromString(mol.GetStringData(tag).c_str());
+        } else {
+            continue;  // non-scalar generic data: leave as-is
+        }
+        if (!val) { Py_DECREF(lst); return NULL; }
+        PyObject* pyname = PyUnicode_FromString(name);
+        PyObject* pytag = PyLong_FromUnsignedLong(tag);
+        if (!pyname || !pytag) { Py_XDECREF(pyname); Py_XDECREF(pytag);
+                                 Py_DECREF(val); Py_DECREF(lst); return NULL; }
+        PyObject* tup = PyTuple_Pack(3, pyname, val, pytag);
+        Py_DECREF(pyname); Py_DECREF(val); Py_DECREF(pytag);
+        if (!tup) { Py_DECREF(lst); return NULL; }
+        if (PyList_Append(lst, tup) != 0) { Py_DECREF(tup); Py_DECREF(lst); return NULL; }
+        Py_DECREF(tup);
+    }
+    return lst;
+}
+
+// Build a type-preserving temp carrying the caller-supplied scalar data under
+// this module's registry, then serialize to bytes. Used on static builds.
+Bytes _mol_to_bytes_bridged(OEChem::OEMolBase& mol, PyObject* names,
+                            PyObject* values, unsigned fmt, unsigned flavor,
+                            bool gzip) {
+    OEChem::OEMol temp;
+    _build_bridged_temp(temp, mol, names, values);
+    return mol_to_bytes(temp, fmt, flavor, gzip);
+}
+
+// Text counterpart of _mol_to_bytes_bridged (no gzip).
+std::string _mol_to_string_bridged(OEChem::OEMolBase& mol, PyObject* names,
+                                   PyObject* values, unsigned fmt,
+                                   unsigned flavor) {
+    OEChem::OEMol temp;
+    _build_bridged_temp(temp, mol, names, values);
+    return mol_to_string(temp, fmt, flavor);
+}
 }  // namespace oeio
 %}
 
@@ -750,38 +876,25 @@ public:
     /// (int/double/float/bool/string) is surfaced; other data is left untouched.
     /// Returns a new reference to a Python list of (str, value) tuples.
     PyObject* generic_data_pairs(OEChem::OEMolBase& mol) {
-        PyObject* lst = PyList_New(0);
-        if (!lst) return NULL;
-        for (OESystem::OEIter<OESystem::OEBaseData> it = mol.GetDataIter(); it; ++it) {
-            const unsigned int tag = it->GetTag();
-            const char* name = OESystem::OEGetTag(tag);
-            if (!name || !name[0]) continue;
-            const void* dtype = it->GetDataType();
-            PyObject* val = NULL;
-            if (dtype == OESystem::OEGetDataType<int>()) {
-                val = PyLong_FromLong(mol.GetIntData(tag));
-            } else if (dtype == OESystem::OEGetDataType<double>()) {
-                val = PyFloat_FromDouble(mol.GetDoubleData(tag));
-            } else if (dtype == OESystem::OEGetDataType<float>()) {
-                val = PyFloat_FromDouble(static_cast<double>(mol.GetFloatData(tag)));
-            } else if (dtype == OESystem::OEGetDataType<bool>()) {
-                val = PyBool_FromLong(mol.GetBoolData(tag) ? 1 : 0);
-            } else if (dtype == OESystem::OEGetDataType<std::string>()) {
-                val = PyUnicode_FromString(mol.GetStringData(tag).c_str());
-            } else {
-                continue;  // non-scalar generic data: leave as-is
-            }
-            if (!val) { Py_DECREF(lst); return NULL; }
-            PyObject* pyname = PyUnicode_FromString(name);
-            if (!pyname) { Py_DECREF(val); Py_DECREF(lst); return NULL; }
-            PyObject* tup = PyTuple_Pack(2, pyname, val);
-            Py_DECREF(pyname);
-            Py_DECREF(val);
-            if (!tup) { Py_DECREF(lst); return NULL; }
-            if (PyList_Append(lst, tup) != 0) { Py_DECREF(tup); Py_DECREF(lst); return NULL; }
-            Py_DECREF(tup);
+        // Project the (name, value, tag) triples from _scalar_generic_data down
+        // to the historical (name, value) 2-tuple contract, so
+        // Reader._reattach_cpp_data stays unchanged.
+        PyObject* triples = oeio::_scalar_generic_data(mol);
+        if (!triples) return NULL;
+        Py_ssize_t n = PyList_Size(triples);
+        PyObject* out = PyList_New(0);
+        if (!out) { Py_DECREF(triples); return NULL; }
+        for (Py_ssize_t i = 0; i < n; ++i) {
+            PyObject* t = PyList_GetItem(triples, i);           // borrowed
+            PyObject* pair = PyTuple_Pack(2, PyTuple_GetItem(t, 0),
+                                             PyTuple_GetItem(t, 1));
+            if (!pair) { Py_DECREF(triples); Py_DECREF(out); return NULL; }
+            if (PyList_Append(out, pair) != 0) { Py_DECREF(pair);
+                Py_DECREF(triples); Py_DECREF(out); return NULL; }
+            Py_DECREF(pair);
         }
-        return lst;
+        Py_DECREF(triples);
+        return out;
     }
 
 private:
