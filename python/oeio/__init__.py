@@ -566,6 +566,12 @@ from .oeio import (
     _WriterHandle,
     _open_reader,
     _open_writer,
+    _mol_to_string,
+    _mol_from_string,
+    _mol_to_bytes,
+    _mol_from_bytes,
+    _resolve_format,
+    _NEEDS_DATA_REATTACH,
 )
 
 
@@ -745,6 +751,148 @@ def formats():
     return cpp_fmts + py_fmts
 
 
+# ============================================================================
+# In-memory molecule serialization
+# ============================================================================
+
+
+def _as_format_code(format):
+    """Resolve a format (str token or OEFormat_* int) to an OEFormat int.
+
+    :param format: A format token (``"oeb"``, ``".sdf"``) or an ``OEFormat_*``
+        integer.
+    :returns: The integer OEFormat code.
+    :raises FormatError: If a string token is not a recognized OEChem format.
+    """
+    if isinstance(format, str):
+        return _resolve_format(format)
+    return int(format)
+
+
+def _new_mol(mol_type):
+    """Validate ``mol_type`` and return a fresh instance.
+
+    :param mol_type: An ``oechem`` molecule class.
+    :returns: A new ``mol_type`` instance.
+    :raises TypeError: If ``mol_type`` is not an ``OEMolBase`` subclass.
+    """
+    from openeye import oechem
+
+    if not (isinstance(mol_type, type) and issubclass(mol_type, oechem.OEMolBase)):
+        raise TypeError(
+            "mol_type must be an oechem OEMolBase subclass, got {!r}".format(mol_type))
+    return mol_type()
+
+
+def _reattach_after_from(mol):
+    """Re-key C++-set scalar generic data under Python's registry (static builds).
+
+    No-op on shared builds; the static-build implementation is added in the
+    serialize-bridge task.
+    """
+    return
+
+
+def to_bytes(mol, format="oeb", flavor=None, gzip=False):
+    """Serialize a single molecule to binary ``bytes`` (default OEB).
+
+    :param mol: The molecule to serialize (single- or multi-conformer).
+    :param format: Format token or ``OEFormat_*`` int; defaults to ``"oeb"``.
+    :param flavor: Output flavor; ``None`` uses the per-format default.
+    :param gzip: Whether to gzip-compress the output.
+    :returns: The serialized bytes.
+    :raises FormatError: If the format is not writeable.
+    """
+    fmt = _as_format_code(format)
+    fl = 0 if flavor is None else int(flavor)
+    return _mol_to_bytes(mol, fmt, fl, bool(gzip))
+
+
+def from_bytes(data, format="oeb", flavor=None, gzip=False, mol_type=None):
+    """Deserialize a single molecule from binary ``bytes`` (default OEB).
+
+    :param data: The bytes to parse (first record only).
+    :param format: Format token or ``OEFormat_*`` int; defaults to ``"oeb"``.
+    :param flavor: Input flavor; ``None`` uses the per-format default.
+    :param gzip: Whether the input is gzip-compressed.
+    :param mol_type: Molecule class to return; defaults to ``oechem.OEMol``.
+    :returns: A new molecule of ``mol_type``.
+    :raises FormatError: If parsing fails or the format is not readable.
+    :raises TypeError: If ``mol_type`` is not an ``OEMolBase`` subclass.
+    """
+    from openeye import oechem
+
+    mol = _new_mol(oechem.OEMol if mol_type is None else mol_type)
+    fmt = _as_format_code(format)
+    fl = 0 if flavor is None else int(flavor)
+    if not _mol_from_bytes(mol, data, fmt, fl, bool(gzip)):
+        raise FormatError("oeio: failed to parse molecule from bytes")
+    _reattach_after_from(mol)
+    return mol
+
+
+def from_bytes_into(mol, data, format="oeb", flavor=None, gzip=False):
+    """Deserialize into a caller-provided molecule (zero-allocation).
+
+    :param mol: The molecule to populate.
+    :returns: ``True`` if a molecule was read, ``False`` otherwise.
+    """
+    fmt = _as_format_code(format)
+    fl = 0 if flavor is None else int(flavor)
+    ok = _mol_from_bytes(mol, data, fmt, fl, bool(gzip))
+    if ok:
+        _reattach_after_from(mol)
+    return ok
+
+
+def to_string(mol, format, flavor=None):
+    """Serialize a single molecule to a text ``str`` (uncompressed).
+
+    :param mol: The molecule to serialize.
+    :param format: Format token or ``OEFormat_*`` int (required).
+    :param flavor: Output flavor; ``None`` uses the per-format default.
+    :returns: The serialized text.
+    :raises FormatError: If the format is not writeable.
+    """
+    fmt = _as_format_code(format)
+    fl = 0 if flavor is None else int(flavor)
+    return _mol_to_string(mol, fmt, fl)
+
+
+def from_string(data, format, flavor=None, mol_type=None):
+    """Deserialize a single molecule from a text ``str``.
+
+    :param data: The text to parse (first record only).
+    :param format: Format token or ``OEFormat_*`` int (required).
+    :param flavor: Input flavor; ``None`` uses the per-format default.
+    :param mol_type: Molecule class to return; defaults to ``oechem.OEMol``.
+    :returns: A new molecule of ``mol_type``.
+    :raises FormatError: If parsing fails or the format is not readable.
+    """
+    from openeye import oechem
+
+    mol = _new_mol(oechem.OEMol if mol_type is None else mol_type)
+    fmt = _as_format_code(format)
+    fl = 0 if flavor is None else int(flavor)
+    if not _mol_from_string(mol, data, fmt, fl):
+        raise FormatError("oeio: failed to parse molecule from string")
+    _reattach_after_from(mol)
+    return mol
+
+
+def from_string_into(mol, data, format, flavor=None):
+    """Deserialize text into a caller-provided molecule.
+
+    :returns: ``True`` if a molecule was read, ``False`` otherwise.
+    """
+    fmt = _as_format_code(format)
+    fl = 0 if flavor is None else int(flavor)
+    ok = _mol_from_string(mol, data, fmt, fl)
+    if ok:
+        _reattach_after_from(mol)
+    return ok
+
+
 _load_plugins()
 
 __all__ = [
@@ -756,6 +904,12 @@ __all__ = [
     "filter",
     "transform",
     "register_handler",
+    "to_bytes",
+    "from_bytes",
+    "from_bytes_into",
+    "to_string",
+    "from_string",
+    "from_string_into",
     "Reader",
     "Error",
     "FormatError",
