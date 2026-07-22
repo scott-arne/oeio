@@ -180,6 +180,21 @@ class TestBridgeDirect:
         names = [oechem.OEGetTag(dp.GetTag()) for dp in m.GetDataIter()]
         assert names.count("energy") == 1
 
+    def test_bridged_out_of_int32_raises_not_truncates(self):
+        # A value that fits C long but not int32 must fail closed rather than
+        # silently truncate; the caller's molecule must be untouched.
+        m = _ethanol()
+        m.SetData("energy", -1.0)
+        with pytest.raises(Exception):
+            oeio._mol_to_bytes_bridged(m, ["big"], [2**40], oechem.OEFormat_OEB, 0, False)
+        assert not m.HasData("big")
+        assert m.GetData("energy") == -1.0
+        # An in-range int still round-trips fine through the bridged path.
+        b = oeio._mol_to_bytes_bridged(m, ["n"], [2**30], oechem.OEFormat_OEB, 0, False)
+        back = oechem.OEGraphMol()
+        assert oeio._mol_from_bytes(back, b, oechem.OEFormat_OEB, 0, False)
+        assert back.GetData("n") == 2**30
+
 
 class TestErrors:
     def test_unknown_format_raises(self):

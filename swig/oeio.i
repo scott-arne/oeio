@@ -3,6 +3,8 @@
 %module _oeio
 
 %{
+#include <limits>
+
 #include "oeio/oeio.h"
 #include <oechem.h>
 #include <oegrid.h>
@@ -671,6 +673,12 @@ static void _set_bridged_data(OEChem::OEMolBase& temp, PyObject* names,
         } else if (PyLong_Check(vv)) {
             long lv = PyLong_AsLong(vv);
             if (lv == -1 && PyErr_Occurred()) fail("oeio: bridged data int value out of range");
+            // The oeio generic-data int model is int32 (SetData/GetIntData);
+            // fail closed rather than silently truncate a value that fits C long
+            // but not int (reachable only via an out-of-contract direct call).
+            if (lv < std::numeric_limits<int>::min() ||
+                lv > std::numeric_limits<int>::max())
+                fail("oeio: bridged int value out of 32-bit range");
             p.kind = 1; p.i = static_cast<int>(lv);
         } else if (PyFloat_Check(vv)) {
             double dv = PyFloat_AsDouble(vv);
