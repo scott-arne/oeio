@@ -584,7 +584,19 @@ struct WriterConfig {
 %typemap(in) const oeio::Bytes& (oeio::Bytes tmp) {
     char* buf = nullptr; Py_ssize_t len = 0;
     if (PyBytes_AsStringAndSize($input, &buf, &len) != 0) SWIG_fail;
-    tmp.assign(buf, (size_t)len);
+    // The copy runs in the input typemap, before the %exception try/catch wraps
+    // the wrapped call, so a std::bad_alloc/length_error from a huge payload
+    // would otherwise escape uncaught through the Python C API and abort. Convert
+    // it to a Python exception here instead.
+    try {
+        tmp.assign(buf, (size_t)len);
+    } catch (const std::bad_alloc&) {
+        PyErr_NoMemory();
+        SWIG_fail;
+    } catch (const std::exception& e) {
+        PyErr_SetString(PyExc_ValueError, e.what());
+        SWIG_fail;
+    }
     $1 = &tmp;
 }
 // The `in` typemap above uses a stack-local buffer, so nothing needs freeing.
