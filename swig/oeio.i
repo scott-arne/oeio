@@ -1166,7 +1166,7 @@ def formats():
     return list(FormatRegistry.instance().formats())
 
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 _install_exception_types(Error, FormatError, FileError)
 %}
