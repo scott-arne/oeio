@@ -604,33 +604,19 @@ struct WriterConfig {
 // typedef) which would reference an undeclared res$argnum for this type.
 %typemap(freearg) const oeio::Bytes& "";
 
-// Compile-only helper (not SWIG-wrapped, like the static helpers above) for the
+// Compile-only helpers (not SWIG-wrapped, like the static helpers above) for the
 // static-build serialize bridge. Defined ahead of the %inline bridge entry
-// points that call it.
+// points that call them.
 %{
 namespace oeio {
-// Build a temp molecule carrying the caller-supplied scalar generic data under
-// THIS module's OpenEye tag registry, so the subsequent serialize keys names
-// through the same registry that will read them back. Used on static builds
-// where the caller's molecule keys its named data under Python's (different)
-// registry. `names`/`values` are parallel Python sequences of scalar generic
-// data. No transient duplication on any live molecule: the temp's copied
-// (stale-registry) data is cleared before the correctly-named pairs are set.
-static void _build_bridged_temp(OEChem::OEMol& temp, OEChem::OEMolBase& mol,
-                                PyObject* names, PyObject* values) {
-    // Type-preserving copy: route a genuine multi-conformer source through the
-    // OEMCMolBase overload so all conformers survive; OECopyMol otherwise
-    // resolves on the static OEMolBase& type and flattens to one conformer.
-    if (auto* mc = dynamic_cast<OEChem::OEMCMolBase*>(&mol)) {
-        OEChem::OECopyMol(temp, *mc);             // structure + all conformers
-    } else {
-        // Cast the destination to OEMolBase& so the OEMolBase overload is
-        // selected unambiguously (temp is an OEMol, so an unqualified call is
-        // ambiguous between the OEMolBase and OEMCMolBase overloads).
-        OEChem::OECopyMol(static_cast<OEChem::OEMolBase&>(temp), mol);
-    }
-    // temp now carries structure + stale (caller-registry) data tags. Clear all
-    // generic data (collect tags first; cannot delete while iterating).
+// Clear a temp's copied (stale-registry) generic data, then set the caller-
+// supplied scalar pairs under THIS module's OpenEye tag registry (by name), so
+// the subsequent serialize keys names through the same registry that will read
+// them back. Operates on the abstract OEMolBase so it is independent of the
+// temp's concrete type. `names`/`values` are parallel Python sequences.
+static void _set_bridged_data(OEChem::OEMolBase& temp, PyObject* names,
+                              PyObject* values) {
+    // Clear all generic data (collect tags first; cannot delete while iterating).
     std::vector<unsigned int> tags;
     for (OESystem::OEIter<OESystem::OEBaseData> it = temp.GetDataIter(); it; ++it)
         tags.push_back(it->GetTag());
@@ -665,6 +651,33 @@ static void _build_bridged_temp(OEChem::OEMol& temp, OEChem::OEMolBase& mol,
         Py_XDECREF(nmbytes);
         Py_XDECREF(nm); Py_XDECREF(vv);
     }
+}
+
+// Build a TYPE-PRESERVING temp carrying the caller-supplied scalar data under
+// this module's registry, then serialize it via `serialize`. The temp type
+// mirrors write_dispatch's own threshold (src/serialize.cpp): a genuine
+// multi-conformer source (OEMCMolBase with NumConfs()>1) uses an OEMol temp
+// copied via the OEMCMolBase overload so all conformers survive; every other
+// molecule uses an OEGraphMol temp so the molecule TITLE survives an OEB
+// single-conformer write (an OEMol temp drops the title — the same
+// conformer/title quirk write_dispatch guards, and SetTitle on the OEMol temp
+// does NOT fix it). No transient duplication on any live molecule: only the
+// throwaway temp is mutated, and its stale data is cleared before the correct
+// pairs are set.
+template <class Serialize>
+static auto _with_bridged_temp(OEChem::OEMolBase& mol, PyObject* names,
+                               PyObject* values, Serialize&& serialize) {
+    auto* mc = dynamic_cast<OEChem::OEMCMolBase*>(&mol);
+    if (mc && mc->NumConfs() > 1) {
+        OEChem::OEMol temp;
+        OEChem::OECopyMol(temp, *mc);             // structure + all conformers
+        _set_bridged_data(temp, names, values);
+        return serialize(temp);
+    }
+    OEChem::OEGraphMol temp;
+    OEChem::OECopyMol(temp, mol);                 // structure + title (single conf)
+    _set_bridged_data(temp, names, values);
+    return serialize(temp);
 }
 }  // namespace oeio
 %}
@@ -743,18 +756,20 @@ PyObject* _scalar_generic_data(OEChem::OEMolBase& mol) {
 Bytes _mol_to_bytes_bridged(OEChem::OEMolBase& mol, PyObject* names,
                             PyObject* values, unsigned fmt, unsigned flavor,
                             bool gzip) {
-    OEChem::OEMol temp;
-    _build_bridged_temp(temp, mol, names, values);
-    return mol_to_bytes(temp, fmt, flavor, gzip);
+    return _with_bridged_temp(mol, names, values,
+        [&](OEChem::OEMolBase& temp) {
+            return mol_to_bytes(temp, fmt, flavor, gzip);
+        });
 }
 
 // Text counterpart of _mol_to_bytes_bridged (no gzip).
 std::string _mol_to_string_bridged(OEChem::OEMolBase& mol, PyObject* names,
                                    PyObject* values, unsigned fmt,
                                    unsigned flavor) {
-    OEChem::OEMol temp;
-    _build_bridged_temp(temp, mol, names, values);
-    return mol_to_string(temp, fmt, flavor);
+    return _with_bridged_temp(mol, names, values,
+        [&](OEChem::OEMolBase& temp) {
+            return mol_to_string(temp, fmt, flavor);
+        });
 }
 }  // namespace oeio
 %}

@@ -805,7 +805,7 @@ def _reattach_after_from(mol):
             mol.DeleteData(tag)
 
 
-def _has_scalar_data(mol):
+def _has_generic_data(mol):
     """Return ``True`` if the molecule carries any molecule-level generic data.
 
     A cheap peek used to decide whether the static-build serialize bridge is
@@ -855,7 +855,7 @@ def to_bytes(mol, format="oeb", flavor=None, gzip=False):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
-    if _NEEDS_DATA_REATTACH and _has_scalar_data(mol):
+    if _NEEDS_DATA_REATTACH and _has_generic_data(mol):
         names, values = _scalar_pairs_for_bridge(mol)
         return _mol_to_bytes_bridged(mol, names, values, fmt, fl, bool(gzip))
     return _mol_to_bytes(mol, fmt, fl, bool(gzip))
@@ -909,7 +909,7 @@ def to_string(mol, format, flavor=None):
     """
     fmt = _as_format_code(format)
     fl = 0 if flavor is None else int(flavor)
-    if _NEEDS_DATA_REATTACH and _has_scalar_data(mol):
+    if _NEEDS_DATA_REATTACH and _has_generic_data(mol):
         names, values = _scalar_pairs_for_bridge(mol)
         return _mol_to_string_bridged(mol, names, values, fmt, fl)
     return _mol_to_string(mol, fmt, fl)
