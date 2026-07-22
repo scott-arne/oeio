@@ -59,6 +59,48 @@ def bench_oeio_roundtrip(path, iterations=5):
     return times, count
 
 
+def bench_inmemory_bytes(path, iterations=20000):
+    """Benchmark oeio.to_bytes/from_bytes (OEB) vs oemolistream openstring.
+
+    Uses the first molecule from ``path`` and times a single-molecule OEB
+    round-trip (serialize + deserialize) for each mechanism.
+    """
+    import oeio
+
+    ifs = oechem.oemolistream()
+    ifs.open(path)
+    mol = oechem.OEGraphMol()
+    oechem.OEReadMolecule(ifs, mol)
+    ifs.close()
+
+    OEB = oechem.OEFormat_OEB
+
+    def fast():
+        b = oeio.to_bytes(mol)  # OEB bytes
+        oeio.from_bytes(b)
+
+    def openstring():
+        oms = oechem.oemolostream()
+        oms.SetFormat(OEB)
+        oms.openstring()
+        oechem.OEWriteMolecule(oms, mol)
+        s = oms.GetString()
+        ims = oechem.oemolistream()
+        ims.SetFormat(OEB)
+        ims.openstring(s)
+        d = oechem.OEGraphMol()
+        oechem.OEReadMolecule(ims, d)
+
+    results = {}
+    for label, fn in (("oeio.to/from_bytes (OEB)", fast), ("openstring (OEB)", openstring)):
+        fn()  # warmup
+        start = time.perf_counter()
+        for _ in range(iterations):
+            fn()
+        results[label] = (time.perf_counter() - start) * 1e6 / iterations
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark oeio roundtrip vs raw OEChem")
     parser.add_argument("path", help="Path to molecule file")
@@ -83,6 +125,16 @@ def main():
 
     ratio = min(oeio_times) / min(raw_times) if min(raw_times) > 0 else float('inf')
     print(f"Ratio (oeio / raw): {ratio:.2f}x")
+    print()
+
+    print("In-memory single-molecule bytes round-trip (first molecule):")
+    mem = bench_inmemory_bytes(args.path)
+    for label, us in mem.items():
+        print(f"  {label:28s}: {us:7.1f} us/round-trip")
+    fast_us = mem.get("oeio.to/from_bytes (OEB)")
+    open_us = mem.get("openstring (OEB)")
+    if fast_us and open_us and fast_us > 0:
+        print(f"  speedup (openstring / oeio-bytes): {open_us / fast_us:.2f}x")
 
 
 if __name__ == "__main__":
