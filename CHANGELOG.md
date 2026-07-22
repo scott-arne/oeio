@@ -5,7 +5,31 @@ All notable changes to `oeio` are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.1] - 2026-07-09
+## [0.5.0] - 2026-07-22
+
+### Added
+
+- **In-memory single-molecule serialization.** New Python API
+  `oeio.to_bytes` / `from_bytes` / `to_string` / `from_string` (plus the
+  fill-style `from_bytes_into` / `from_string_into`) converts a single molecule
+  to/from `bytes` or `str` for OEChem-native formats — for caching, message
+  queues, RPC, and database blobs. OEB `bytes` are the fast path (measured
+  several times faster than an `oemolistream` `openstring` round-trip). Backed
+  by C++ `oeio::mol_to_bytes` / `mol_from_bytes` / `mol_to_string` /
+  `mol_from_string` (in `oeio/serialize.h`), exposed through SWIG with
+  binary-safe `bytes` typemaps.
+  - `format` accepts a token (`"oeb"`, `".sdf"`, `"smi"`) or an `OEFormat_*`
+    int; `flavor` defaults per-format; `gzip` applies only to the `*_bytes`
+    functions; `mol_type` selects the returned type (default `OEMol`).
+  - Return-style functions raise `oeio.FormatError` on failure; `*_into`
+    variants return a bool. Non-OEChem formats (CUBE/FCHK) raise
+    `oeio.FormatError`; a multi-record buffer yields only its first record
+    (multi-record streaming is out of scope for this release).
+  - **Full fidelity across build types.** On shared builds (Linux/macOS wheels)
+    oeio's C++ performs the serialization; on the static Windows wheel — where
+    oeio and Python link separate OpenEye tag registries — the conversion runs
+    directly through the active `oechem`, so all molecule data (including SD
+    tags) is preserved on every platform.
 
 ### Changed
 

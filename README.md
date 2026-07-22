@@ -117,6 +117,48 @@ with oeio.write("output.sdf") as writer:
         writer.append(mol)
 ```
 
+**In-memory serialization (bytes / string):**
+
+Convert a single molecule to/from `bytes` or `str` without touching the
+filesystem — for caching, message queues, RPC, or database blobs. OEB `bytes`
+are the fast path (measured several times faster than an `oemolistream`
+`openstring` round-trip).
+
+```python
+import oeio
+from openeye import oechem
+
+mol = oechem.OEGraphMol()
+oechem.OESmilesToMol(mol, "CCO")
+mol.SetTitle("ethanol")
+
+blob = oeio.to_bytes(mol)                  # OEB bytes (default format)
+same = oeio.from_bytes(blob)               # -> OEMol (default type)
+
+text = oeio.to_string(mol, "sdf")          # SDF text
+same = oeio.from_string(text, "sdf")
+
+gz = oeio.to_bytes(mol, "sdf", gzip=True)  # gzip is bytes-only (compressed SDF)
+
+# Zero-allocation fill-style, and explicit output type:
+dst = oechem.OEGraphMol()
+oeio.from_bytes_into(dst, blob)
+graph = oeio.from_string(text, "sdf", mol_type=oechem.OEGraphMol)
+```
+
+`format` accepts a token (`"oeb"`, `".sdf"`, `"smi"`) or an `OEFormat_*` int;
+`flavor` defaults per-format; `gzip` applies only to the `*_bytes` functions
+(`to_string`/`from_string` are uncompressed text). Return-style functions raise
+`oeio.FormatError` on failure; the `*_into` variants return a bool. These are
+OEChem-native formats only — a CUBE/FCHK format raises `oeio.FormatError` — and
+they read a **single** record (the first) from a multi-record buffer.
+
+> **Molecule type & metadata:** like `oeio.read`, `from_bytes`/`from_string`
+> default to returning `OEMol`. Reading a single molecule's SD tags or other
+> molecule-level generic data back is most reliable into an `OEGraphMol`
+> (`mol_type=oechem.OEGraphMol`) — the same OpenEye behavior `oeio.read`
+> exhibits for `OEMol`.
+
 **Reading volumetric grids (CUBE):**
 
 ```python
