@@ -180,6 +180,21 @@ class TestBridgeDirect:
         names = [oechem.OEGetTag(dp.GetTag()) for dp in m.GetDataIter()]
         assert names.count("energy") == 1
 
+    def test_scalar_pairs_for_bridge_skips_non_scalar_data(self):
+        # Non-scalar generic data (e.g. an SD tag set via OESetSDData) must be
+        # skipped, not passed to GetData (which raises for non-convertible tags).
+        # This is the static-build crash path for to_bytes/to_string.
+        m = oechem.OEGraphMol()
+        oechem.OESmilesToMol(m, "CCO")
+        m.SetData("energy", -1.5)
+        m.SetData("count", 3)
+        oechem.OESetSDData(m, "sdk", "sdv")  # non-scalar generic data
+        names, values = oeio._scalar_pairs_for_bridge(m)
+        pairs = dict(zip(names, values))
+        assert pairs.get("energy") == -1.5
+        assert pairs.get("count") == 3
+        assert "sdk" not in names
+
     def test_bridged_out_of_int32_raises_not_truncates(self):
         # A value that fits C long but not int32 must fail closed rather than
         # silently truncate; the caller's molecule must be untouched.

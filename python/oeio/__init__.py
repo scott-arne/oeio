@@ -838,8 +838,17 @@ def _scalar_pairs_for_bridge(mol):
             continue
         if not mol.HasData(name):
             continue
-        names.append(name)
-        values.append(mol.GetData(name))
+        try:
+            value = mol.GetData(name)
+        except Exception:
+            # Non-convertible datum (e.g. an SD-tag container set via
+            # OESetSDData) is out of the scalar contract; skip it rather than
+            # let GetData raise. Mirrors the C++ _scalar_generic_data set.
+            continue
+        if isinstance(value, (bool, int, float, str)):
+            names.append(name)
+            values.append(value)
+        # else: non-scalar generic data -> out of the scalar contract, skip
     return names, values
 
 
