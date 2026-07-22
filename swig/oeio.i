@@ -482,8 +482,8 @@ void _install_exception_types(PyObject* err,
 // Version macros
 // ============================================================================
 #define OEIO_VERSION_MAJOR 0
-#define OEIO_VERSION_MINOR 4
-#define OEIO_VERSION_PATCH 1
+#define OEIO_VERSION_MINOR 5
+#define OEIO_VERSION_PATCH 0
 
 // ============================================================================
 // Header includes for SWIG compilation
@@ -566,6 +566,60 @@ struct WriterConfig {
 
 }  // namespace oechem
 }  // namespace oeio
+
+// ============================================================================
+// In-memory serialization (Capability A)
+// ============================================================================
+%{
+#include "oeio/serialize.h"
+%}
+
+// Binary-safe payload type: a std::string carrying raw bytes. Distinct typemaps
+// convert it to/from Python `bytes`, never `str`. These attach only to the
+// specially-named oeio::Bytes typedef, so the default std::string<->str mapping
+// used elsewhere in this module is untouched.
+%typemap(out) oeio::Bytes {
+    $result = PyBytes_FromStringAndSize($1.data(), (Py_ssize_t)$1.size());
+}
+%typemap(in) const oeio::Bytes& (oeio::Bytes tmp) {
+    char* buf = nullptr; Py_ssize_t len = 0;
+    if (PyBytes_AsStringAndSize($input, &buf, &len) != 0) SWIG_fail;
+    tmp.assign(buf, (size_t)len);
+    $1 = &tmp;
+}
+// The `in` typemap above uses a stack-local buffer, so nothing needs freeing.
+// Override the default std_string freearg (reached via the Bytes->std::string
+// typedef) which would reference an undeclared res$argnum for this type.
+%typemap(freearg) const oeio::Bytes& "";
+
+%inline %{
+namespace oeio {
+// Alias so the typemaps above bind only to the bytes entry points.
+using Bytes = std::string;
+
+// --- string (text) entry points: default std::string<->str typemaps apply ---
+std::string _mol_to_string(const OEChem::OEMolBase& mol, unsigned fmt,
+                           unsigned flavor) {
+    return mol_to_string(mol, fmt, flavor);
+}
+bool _mol_from_string(OEChem::OEMolBase& mol, const std::string& data,
+                      unsigned fmt, unsigned flavor) {
+    return mol_from_string(mol, data, fmt, flavor);
+}
+
+// --- bytes entry points: Bytes typemaps apply (binary-safe) ---
+Bytes _mol_to_bytes(const OEChem::OEMolBase& mol, unsigned fmt,
+                    unsigned flavor, bool gzip) {
+    return mol_to_bytes(mol, fmt, flavor, gzip);
+}
+bool _mol_from_bytes(OEChem::OEMolBase& mol, const Bytes& data, unsigned fmt,
+                     unsigned flavor, bool gzip) {
+    return mol_from_bytes(mol, data, fmt, flavor, gzip);
+}
+
+unsigned _resolve_format(const std::string& fmt) { return resolve_format(fmt); }
+}  // namespace oeio
+%}
 
 // ============================================================================
 // Reader and Writer handles (Python-specific wrappers)
