@@ -614,42 +614,94 @@ namespace oeio {
 // the subsequent serialize keys names through the same registry that will read
 // them back. Operates on the abstract OEMolBase so it is independent of the
 // temp's concrete type. `names`/`values` are parallel Python sequences.
+//
+// Fails closed: the pairs are validated and extracted into C++ holders BEFORE
+// the temp is mutated, so a malformed call (non-sequence, length mismatch,
+// non-string name, or a conversion/overflow failure) clears any pending Python
+// error, releases every owned reference, and throws oeio::Error — which the
+// %exception block maps to Python. The wrapped bridge functions therefore never
+// serialize or emit partial output after a C-API error, and never return with a
+// pending Python exception. PySequence_Size/GetItem are used (not the
+// PySequence_Fast_GET_* macros, which are excluded under the Python limited/
+// stable ABI this module targets).
 static void _set_bridged_data(OEChem::OEMolBase& temp, PyObject* names,
                               PyObject* values) {
-    // Clear all generic data (collect tags first; cannot delete while iterating).
-    std::vector<unsigned int> tags;
-    for (OESystem::OEIter<OESystem::OEBaseData> it = temp.GetDataIter(); it; ++it)
-        tags.push_back(it->GetTag());
-    for (unsigned int t : tags) temp.DeleteData(t);
-    // Set the caller-supplied pairs under this module's registry (by name).
-    // PyBool_Check precedes PyLong_Check because bool is a subclass of int.
-    // SWIG_PyUnicode_AsUTF8AndSize (not PyUnicode_AsUTF8) is used so this
-    // compiles under the Python limited/stable ABI this module targets; the
-    // returned char* stays valid only while its companion bytes object lives.
-    Py_ssize_t n = PySequence_Size(names);
-    for (Py_ssize_t i = 0; i < n; ++i) {
-        PyObject* nm = PySequence_GetItem(names, i);   // new ref
-        PyObject* vv = PySequence_GetItem(values, i);  // new ref
+    Py_ssize_t nn = PySequence_Size(names);
+    Py_ssize_t nv = PySequence_Size(values);
+    if (nn < 0 || nv < 0 || nn != nv) {
+        PyErr_Clear();
+        throw oeio::Error("oeio: bridged data name/value length mismatch");
+    }
+
+    // Default-initialized so an unused alternative is never read.
+    struct Pair {
+        std::string name;
+        int kind = -1;  // -1 skip, 0 bool, 1 int, 2 double, 3 string
+        bool b = false;
+        int i = 0;
+        double d = 0.0;
+        std::string s;
+    };
+    std::vector<Pair> pairs;
+    pairs.reserve(static_cast<size_t>(nn));
+    for (Py_ssize_t idx = 0; idx < nn; ++idx) {
+        PyObject* nm = PySequence_GetItem(names, idx);   // new ref (or NULL)
+        PyObject* vv = PySequence_GetItem(values, idx);  // new ref (or NULL)
+        // Release owned refs, clear the pending PyErr, and throw so the wrapped
+        // call never proceeds to serialize.
+        auto fail = [&](const char* msg) {
+            Py_XDECREF(nm); Py_XDECREF(vv);
+            PyErr_Clear();
+            throw oeio::Error(msg);
+        };
+        if (!nm || !vv) fail("oeio: bridged data element access failed");
+        if (!PyUnicode_Check(nm)) fail("oeio: bridged data name is not a string");
+        // SWIG_PyUnicode_AsUTF8AndSize (not PyUnicode_AsUTF8) is used so this
+        // compiles under the limited ABI; the returned char* is valid only while
+        // its companion bytes object lives, so copy before releasing it.
         PyObject* nmbytes = nullptr;
-        const char* name = nm ? SWIG_PyUnicode_AsUTF8AndSize(nm, nullptr, &nmbytes)
-                              : nullptr;
-        if (name) {
-            if (PyBool_Check(vv)) {
-                temp.SetData(name, vv == Py_True);
-            } else if (PyLong_Check(vv)) {
-                temp.SetData(name, static_cast<int>(PyLong_AsLong(vv)));
-            } else if (PyFloat_Check(vv)) {
-                temp.SetData(name, PyFloat_AsDouble(vv));
-            } else if (PyUnicode_Check(vv)) {
-                PyObject* vbytes = nullptr;
-                const char* sval = SWIG_PyUnicode_AsUTF8AndSize(vv, nullptr, &vbytes);
-                if (sval) temp.SetData(name, std::string(sval));
-                Py_XDECREF(vbytes);
-            }
-            // Non-scalar values are out of contract and skipped.
-        }
+        const char* cname = SWIG_PyUnicode_AsUTF8AndSize(nm, nullptr, &nmbytes);
+        if (!cname) { Py_XDECREF(nmbytes); fail("oeio: bridged data name is not valid UTF-8"); }
+        Pair p;
+        p.name.assign(cname);
         Py_XDECREF(nmbytes);
+        // PyBool_Check precedes PyLong_Check because bool is a subclass of int.
+        if (PyBool_Check(vv)) {
+            p.kind = 0; p.b = (vv == Py_True);
+        } else if (PyLong_Check(vv)) {
+            long lv = PyLong_AsLong(vv);
+            if (lv == -1 && PyErr_Occurred()) fail("oeio: bridged data int value out of range");
+            p.kind = 1; p.i = static_cast<int>(lv);
+        } else if (PyFloat_Check(vv)) {
+            double dv = PyFloat_AsDouble(vv);
+            if (dv == -1.0 && PyErr_Occurred()) fail("oeio: bridged data float value is invalid");
+            p.kind = 2; p.d = dv;
+        } else if (PyUnicode_Check(vv)) {
+            PyObject* vbytes = nullptr;
+            const char* sval = SWIG_PyUnicode_AsUTF8AndSize(vv, nullptr, &vbytes);
+            if (!sval) { Py_XDECREF(vbytes); fail("oeio: bridged data string value is not valid UTF-8"); }
+            p.kind = 3; p.s.assign(sval); Py_XDECREF(vbytes);
+        }
+        // Non-scalar values leave p.kind == -1 (out of contract) and are skipped.
         Py_XDECREF(nm); Py_XDECREF(vv);
+        if (p.kind >= 0) pairs.push_back(std::move(p));
+    }
+
+    // All Python work validated; mutate the temp now (no Python errors possible
+    // past this point). Clear stale data (collect tags first; cannot delete while
+    // iterating), then set the validated pairs.
+    std::vector<unsigned int> stale;
+    for (OESystem::OEIter<OESystem::OEBaseData> it = temp.GetDataIter(); it; ++it)
+        stale.push_back(it->GetTag());
+    for (unsigned int t : stale) temp.DeleteData(t);
+    for (const Pair& p : pairs) {
+        switch (p.kind) {
+            case 0: temp.SetData(p.name.c_str(), p.b); break;
+            case 1: temp.SetData(p.name.c_str(), p.i); break;
+            case 2: temp.SetData(p.name.c_str(), p.d); break;
+            case 3: temp.SetData(p.name.c_str(), p.s); break;
+            default: break;
+        }
     }
 }
 

@@ -166,6 +166,20 @@ class TestBridgeDirect:
         assert oeio._mol_from_string(back, s, oechem.OEFormat_SDF, 0)
         assert back.GetTitle() == "ethanol"
 
+    def test_bridged_length_mismatch_raises_and_leaves_mol_unchanged(self):
+        # Mismatched name/value lengths must fail closed (raise, not crash) and
+        # leave the caller's molecule untouched (only the throwaway temp is built).
+        m = _ethanol()
+        m.SetData("energy", -1.0)
+        before_title = m.GetTitle()
+        before_energy = m.GetData("energy")
+        with pytest.raises(Exception):
+            oeio._mol_to_bytes_bridged(m, ["a", "b"], [1], oechem.OEFormat_OEB, 0, False)
+        assert m.GetTitle() == before_title
+        assert m.GetData("energy") == before_energy
+        names = [oechem.OEGetTag(dp.GetTag()) for dp in m.GetDataIter()]
+        assert names.count("energy") == 1
+
 
 class TestErrors:
     def test_unknown_format_raises(self):
