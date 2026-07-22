@@ -17,6 +17,7 @@ add_executable(oeio_tests
     test_mol_range.cpp
     test_pipeline.cpp
     test_exceptions.cpp
+    test_serialize.cpp
 )
 
 target_link_libraries(oeio_tests

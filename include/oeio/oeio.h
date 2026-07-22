@@ -11,4 +11,5 @@
 #include "oeio/mol_range.h"
 #include "oeio/read.h"
 #include "oeio/write.h"
+#include "oeio/serialize.h"
 #include "oeio/pipeline.h"

@@ -57,6 +57,7 @@ set(OEIO_SOURCES
     src/mol_range.cpp
     src/read.cpp
     src/write.cpp
+    src/serialize.cpp
     src/pipeline.cpp
     src/cube_grid.cpp
     src/cube_reader.cpp
