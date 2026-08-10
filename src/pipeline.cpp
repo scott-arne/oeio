@@ -37,6 +37,28 @@ public:
         return false;
     }
 
+    bool can_resynchronize() const override {
+        return upstream_ && upstream_->can_resynchronize();
+    }
+
+    ReadResult try_next(OEChem::OEMolBase& mol) override {
+        // Loop on upstream try_next(); pass RecordError and EndOfStream through
+        // UNCHANGED (including message and resynchronized). Apply the predicate
+        // only on Ok, continuing the loop when the predicate rejects.
+        for (;;) {
+            ReadResult result = upstream_->try_next(mol);
+            if (result.status != ReadStatus::Ok) {
+                // Non-Ok: pass through unchanged (EOF or error)
+                return result;
+            }
+            if (pred_(mol)) {
+                // Ok and passes predicate: return it
+                return result;
+            }
+            // Ok but rejected by predicate: continue loop
+        }
+    }
+
     /// Collapse a second predicate into this filter, returning a new
     /// FilteredMolSource that combines both predicates.
     std::unique_ptr<MolSource> collapse_with(
@@ -83,6 +105,19 @@ public:
             return false;
         fn_(mol);
         return true;
+    }
+
+    bool can_resynchronize() const override {
+        return upstream_ && upstream_->can_resynchronize();
+    }
+
+    ReadResult try_next(OEChem::OEMolBase& mol) override {
+        // Forward upstream try_next(); apply fn only on Ok; pass non-Ok through unchanged.
+        ReadResult result = upstream_->try_next(mol);
+        if (result.status == ReadStatus::Ok) {
+            fn_(mol);
+        }
+        return result;
     }
 
 private:

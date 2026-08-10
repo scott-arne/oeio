@@ -3,6 +3,7 @@
 #include <oeio/mol_range.h>
 #include <oeio/read.h>
 #include <oeio/read_status.h>
+#include <oeio/pipeline.h>
 
 #include <oechem.h>
 
@@ -197,12 +198,11 @@ TEST(OEChemBehavior, SdfReaderIsLenientAboutMalformedCountsLines) {
     EXPECT_EQ("methanol", titles[1]);  // broken was silently skipped
 }
 
-TEST(OEChemBehavior, SdfFormatReportsResynchronizable) {
-    // SDF is a text format with record delimiters, so can_resynchronize()
-    // correctly returns true (even though OEChem rarely needs to resync
-    // because it's so lenient).
+TEST(OEChemBehavior, OEChemSourceReportsNoResynchronization) {
+    // OEChem provides no skip-to-next-record primitive, so can_resynchronize()
+    // correctly returns false regardless of format.
     oeio::MolRange range = oeio::read(LENIENT_SDF);
-    EXPECT_TRUE(range.can_resynchronize());
+    EXPECT_FALSE(range.can_resynchronize());
 }
 
 TEST(OEChemBehavior, BooleanReadStillTruncatesOnError) {
@@ -243,3 +243,182 @@ TEST(ReadStatus, DynamicDispatchPreservedInTryNext) {
 }
 
 }  // namespace
+
+// ============================================================================
+// Pipeline Adapter Tests
+// ============================================================================
+
+TEST(PipelineAdapters, FilterPreservesRecordError) {
+    // Script: Ok, RecordError, Ok, EndOfStream
+    std::vector<oeio::ReadResult> script = {
+        oeio::read_ok(),
+        oeio::read_error("test error", true),
+        oeio::read_ok(),
+    };
+    oeio::MolRange range(std::make_unique<ScriptedMolSource>(script, true));
+
+    // Filter that accepts all molecules
+    auto filtered = oeio::filter(std::move(range), [](const OEChem::OEMolBase&) {
+        return true;
+    });
+
+    EXPECT_TRUE(filtered.can_resynchronize());
+
+    OEChem::OEGraphMol mol;
+    oeio::ReadResult r1 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::Ok, r1.status);
+
+    oeio::ReadResult r2 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::RecordError, r2.status);
+    EXPECT_EQ("test error", r2.message);
+    EXPECT_TRUE(r2.resynchronized);
+
+    oeio::ReadResult r3 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::Ok, r3.status);
+
+    oeio::ReadResult r4 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::EndOfStream, r4.status);
+}
+
+TEST(PipelineAdapters, FilterSkipsRejectedRecordsButPreservesErrors) {
+    // Script: Ok, Ok (will be rejected), RecordError, Ok, EndOfStream
+    class IndexedScriptedSource : public oeio::MolSource {
+    public:
+        explicit IndexedScriptedSource(std::vector<oeio::ReadResult> script)
+            : script_(std::move(script)), index_(0) {}
+
+        bool next(OEChem::OEGraphMol&) override { return false; }
+        bool can_resynchronize() const override { return true; }
+
+        oeio::ReadResult try_next(OEChem::OEMolBase& mol) override {
+            mol.Clear();
+            if (index_ >= script_.size()) return oeio::read_end();
+            mol.SetTitle("record_" + std::to_string(index_));
+            return script_[index_++];
+        }
+
+    private:
+        std::vector<oeio::ReadResult> script_;
+        std::size_t index_;
+    };
+
+    std::vector<oeio::ReadResult> script = {
+        oeio::read_ok(),
+        oeio::read_ok(),
+        oeio::read_error("error between records", true),
+        oeio::read_ok(),
+    };
+
+    oeio::MolRange range(std::make_unique<IndexedScriptedSource>(script));
+
+    // Filter that rejects record_1
+    auto filtered = oeio::filter(std::move(range), [](const OEChem::OEMolBase& mol) {
+        return std::string(mol.GetTitle()) != "record_1";
+    });
+
+    OEChem::OEGraphMol mol;
+
+    // First: record_0 (accepted)
+    oeio::ReadResult r1 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::Ok, r1.status);
+    EXPECT_EQ("record_0", std::string(mol.GetTitle()));
+
+    // Second: record_1 skipped, record_2 is RecordError (passed through)
+    oeio::ReadResult r2 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::RecordError, r2.status);
+    EXPECT_EQ("error between records", r2.message);
+
+    // Third: record_3 (accepted)
+    oeio::ReadResult r3 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::Ok, r3.status);
+    EXPECT_EQ("record_3", std::string(mol.GetTitle()));
+
+    // Fourth: EndOfStream
+    oeio::ReadResult r4 = filtered.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::EndOfStream, r4.status);
+}
+
+TEST(PipelineAdapters, TransformPreservesRecordError) {
+    std::vector<oeio::ReadResult> script = {
+        oeio::read_ok(),
+        oeio::read_error("transform error", false),
+        oeio::read_ok(),
+    };
+    oeio::MolRange range(std::make_unique<ScriptedMolSource>(script, false));
+
+    // Transform that sets a property
+    auto transformed = oeio::transform(std::move(range), [](OEChem::OEMolBase& mol) {
+        mol.SetTitle("transformed");
+    });
+
+    EXPECT_FALSE(transformed.can_resynchronize());
+
+    OEChem::OEGraphMol mol;
+
+    oeio::ReadResult r1 = transformed.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::Ok, r1.status);
+    EXPECT_EQ("transformed", std::string(mol.GetTitle()));
+
+    oeio::ReadResult r2 = transformed.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::RecordError, r2.status);
+    EXPECT_EQ("transform error", r2.message);
+    EXPECT_FALSE(r2.resynchronized);
+    // Transform should NOT have been applied on error
+
+    oeio::ReadResult r3 = transformed.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::Ok, r3.status);
+    EXPECT_EQ("transformed", std::string(mol.GetTitle()));
+
+    oeio::ReadResult r4 = transformed.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::EndOfStream, r4.status);
+}
+
+TEST(OEChemBehavior, OEChemSourceCannotResynchronize) {
+    // OEChem provides no skip-to-next-record primitive, so can_resynchronize()
+    // correctly returns false to prevent retry loops.
+    oeio::MolRange range = oeio::read(CLEAN_SDF);
+    EXPECT_FALSE(range.can_resynchronize());
+}
+
+TEST(OEChemBehavior, NonEofFailureTransitionsToTerminalState) {
+    // A MolSource that simulates OEReadMolecule returning false without eof
+    class NonEofFailingSource : public oeio::MolSource {
+    public:
+        NonEofFailingSource() : call_count_(0) {}
+        bool next(OEChem::OEGraphMol&) override { return false; }
+        bool can_resynchronize() const override { return false; }
+
+        oeio::ReadResult try_next(OEChem::OEMolBase& mol) override {
+            mol.Clear();
+            ++call_count_;
+            if (call_count_ == 1) {
+                // First call: simulate non-EOF failure
+                // (In practice, OEChem rarely does this, but this tests the contract)
+                return oeio::read_error("simulated failure", false);
+            }
+            // Subsequent calls: EndOfStream (terminal state)
+            return oeio::read_end();
+        }
+
+    private:
+        int call_count_;
+    };
+
+    oeio::MolRange range(std::make_unique<NonEofFailingSource>());
+
+    OEChem::OEGraphMol mol;
+
+    // First call: RecordError with resynchronized=false
+    oeio::ReadResult r1 = range.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::RecordError, r1.status);
+    EXPECT_FALSE(r1.resynchronized);
+    EXPECT_EQ("simulated failure", r1.message);
+
+    // Second call: EndOfStream (not a second RecordError)
+    oeio::ReadResult r2 = range.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::EndOfStream, r2.status);
+
+    // Third call: still EndOfStream
+    oeio::ReadResult r3 = range.try_read_into(mol);
+    EXPECT_EQ(oeio::ReadStatus::EndOfStream, r3.status);
+}

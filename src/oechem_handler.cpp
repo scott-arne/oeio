@@ -73,21 +73,21 @@ public:
     }
 
     bool can_resynchronize() const override {
-        // oemolistream advances to the next record delimiter on a failed read for the
-        // record-delimited text formats. Binary OEB is a length-prefixed stream where
-        // a bad length leaves no recoverable boundary.
-        const std::string format = OEChem::OEGetFormatString(ifs_.GetFormat());
-        // OEGetFormatString returns full names like "MDL SDF", "MDL MOL2", "PDB", "SMILES", etc.
-        return format.find("SDF") != std::string::npos ||
-               format.find("MOL") != std::string::npos ||
-               format.find("MOL2") != std::string::npos ||
-               format.find("PDB") != std::string::npos ||
-               format.find("SMI") != std::string::npos ||
-               format.find("CSV") != std::string::npos ||
-               format.find("XYZ") != std::string::npos;
+        // OEChem provides no skip-to-next-record primitive. Claiming resynchronized=true
+        // would send callers into a retry loop on a stuck stream (the ReadResult contract
+        // says resynchronized=true means positioned at the next boundary). A handler that
+        // owns its tokenizer (e.g., oemaestro when implemented) can implement true recovery;
+        // OEChemMolSource cannot. Return false to prevent infinite loops.
+        return false;
     }
 
     oeio::ReadResult try_next(OEChem::OEMolBase& mol) override {
+        // Terminal state: once a non-EOF failure occurs, all subsequent calls return EndOfStream.
+        if (failed_) {
+            mol.Clear();
+            return oeio::read_end();
+        }
+
         mol.Clear();
 
         // Same dispatch as next(), and for the same reason. It matters more here:
@@ -109,17 +109,27 @@ public:
         // only a stderr warning). Binary formats like OEB are stricter. This eof()
         // check is correct for readers that DO fail; for lenient readers, RecordError
         // is simply unreachable for most corruption.
-        if (ifs_.eof()) { return oeio::read_end(); }
+        if (ifs_.eof()) {
+            mol.Clear();
+            return oeio::read_end();
+        }
 
+        // Non-EOF failure without resynchronization support: transition to terminal state.
+        // A failed read without resynchronization support ends the stream; subsequent
+        // calls return EndOfStream to prevent retry loops.
+        failed_ = true;
+
+        mol.Clear();
         std::string message = "record " + std::to_string(records_read_ + 1) + " of this " +
                               std::string(OEChem::OEGetFormatString(ifs_.GetFormat())) +
                               " stream could not be parsed";
-        return oeio::read_error(std::move(message), can_resynchronize());
+        return oeio::read_error(std::move(message), false);
     }
 
 private:
     mutable OEChem::oemolistream ifs_;
     std::size_t records_read_ = 0;
+    bool failed_ = false;  // Terminal state: true after first non-EOF failure
 };
 
 // ============================================================================

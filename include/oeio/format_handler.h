@@ -123,6 +123,8 @@ public:
     /// The default implementation adapts the boolean next(): it cannot tell the
     /// two apart, so it reports EndOfStream. Formats that can tell must override
     /// this; oeio's own OEChem-backed source does.
+    ///
+    /// On RecordError, mol is left in a cleared state.
     virtual ReadResult try_next(OEChem::OEMolBase& mol) {
         return next(mol) ? read_ok() : read_end();
     }
