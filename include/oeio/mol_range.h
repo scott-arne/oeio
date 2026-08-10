@@ -93,6 +93,13 @@ public:
     /// \returns true if a molecule was read, false if the source is exhausted or null.
     bool read_into(OEChem::OEMolBase& mol);
 
+    /// Reads one molecule, reporting why the read stopped.
+    /// \returns Ok with mol populated, EndOfStream, or RecordError.
+    OEIO_HOT ReadResult try_read_into(OEChem::OEMolBase& mol);
+
+    /// \returns True if the underlying source can skip a malformed record.
+    [[nodiscard]] bool can_resynchronize() const;
+
     /// \brief Read the next molecule and up to grids.size() caller-owned grids.
     ///
     /// Distinct from read_into(mol): this fills grids alongside the molecule.

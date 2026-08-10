@@ -12,6 +12,8 @@
 #include <oegrid.h>
 #include <oeplatform.h>
 
+#include <oeio/read_status.h>
+
 #if defined(__GNUC__) || defined(__clang__)
 #define OEIO_HOT [[gnu::hot]]
 #define OEIO_FLATTEN __attribute__((flatten))
@@ -106,6 +108,23 @@ public:
                       std::vector<OESystem::OEScalarGrid>& grids) {
         grids.clear();
         return next(mol);
+    }
+
+    /// \returns True if this format can skip a malformed record and continue at
+    ///          the next record boundary. Record-delimited text formats can;
+    ///          block-structured binary formats generally cannot.
+    ///
+    /// The default is false so that a format that has not been audited is
+    /// reported as unrecoverable rather than silently assumed safe.
+    virtual bool can_resynchronize() const { return false; }
+
+    /// Reads one record, distinguishing end-of-stream from a record failure.
+    ///
+    /// The default implementation adapts the boolean next(): it cannot tell the
+    /// two apart, so it reports EndOfStream. Formats that can tell must override
+    /// this; oeio's own OEChem-backed source does.
+    virtual ReadResult try_next(OEChem::OEMolBase& mol) {
+        return next(mol) ? read_ok() : read_end();
     }
 };
 

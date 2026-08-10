@@ -33,6 +33,15 @@ bool MolRange::read_into(OEChem::OEMolBase& mol,
     return source_ && source_->next(mol, grids, num_grids);
 }
 
+ReadResult MolRange::try_read_into(OEChem::OEMolBase& mol) {
+    if (!source_) { return read_end(); }
+    return source_->try_next(mol);
+}
+
+bool MolRange::can_resynchronize() const {
+    return source_ && source_->can_resynchronize();
+}
+
 GridMolRange MolRange::with_grids() {
     return GridMolRange(release_source());
 }

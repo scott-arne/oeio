@@ -5,12 +5,37 @@
 #include "oeio/format_handler.h"
 #include "oeio/format_registry.h"
 #include "oeio/oechem_config.h"
+#include "oeio/read_status.h"
 
 #include <oechem.h>
 #include <oesystem.h>
 
+#include <cstddef>
+#include <string>
+
 namespace oeio {
 namespace builtin {
+
+namespace {
+
+/// Reads one record using the OEReadMolecule overload that matches the
+/// molecule's dynamic type.
+///
+/// OEReadMolecule's overloads resolve by static type, and the OEMolBase&
+/// overload flattens conformers. Dispatching on the dynamic type is what lets an
+/// OEMol (OEMCMolBase) assemble a multi-conformer record and an OEQMol
+/// (OEQMolBase) read as a query.
+bool read_dispatched(OEChem::oemolistream& ifs, OEChem::OEMolBase& mol) {
+    if (auto* mc = dynamic_cast<OEChem::OEMCMolBase*>(&mol)) {
+        return OEChem::OEReadMolecule(ifs, *mc);
+    }
+    if (auto* q = dynamic_cast<OEChem::OEQMolBase*>(&mol)) {
+        return OEChem::OEReadMolecule(ifs, *q);
+    }
+    return OEChem::OEReadMolecule(ifs, mol);
+}
+
+}  // namespace
 
 // ============================================================================
 // OEChemMolSource — reads molecules via oemolistream
@@ -44,21 +69,57 @@ public:
 
     bool next(OEChem::OEMolBase& mol) override {
         mol.Clear();
-        // OEReadMolecule overloads resolve by static type; the OEMolBase&
-        // overload flattens conformers. Dispatch on the dynamic type so an
-        // OEMol (OEMCMolBase) assembles multi-conformer records and an OEQMol
-        // (OEQMolBase) reads as a query.
-        if (auto* mc = dynamic_cast<OEChem::OEMCMolBase*>(&mol)) {
-            return OEChem::OEReadMolecule(ifs_, *mc);
+        return read_dispatched(ifs_, mol);
+    }
+
+    bool can_resynchronize() const override {
+        // oemolistream advances to the next record delimiter on a failed read for the
+        // record-delimited text formats. Binary OEB is a length-prefixed stream where
+        // a bad length leaves no recoverable boundary.
+        const std::string format = OEChem::OEGetFormatString(ifs_.GetFormat());
+        // OEGetFormatString returns full names like "MDL SDF", "MDL MOL2", "PDB", "SMILES", etc.
+        return format.find("SDF") != std::string::npos ||
+               format.find("MOL") != std::string::npos ||
+               format.find("MOL2") != std::string::npos ||
+               format.find("PDB") != std::string::npos ||
+               format.find("SMI") != std::string::npos ||
+               format.find("CSV") != std::string::npos ||
+               format.find("XYZ") != std::string::npos;
+    }
+
+    oeio::ReadResult try_next(OEChem::OEMolBase& mol) override {
+        mol.Clear();
+
+        // Same dispatch as next(), and for the same reason. It matters more here:
+        // oeviz classifies an imported record as a trajectory by NumConfs(), so
+        // reading through the OEMolBase& overload would flatten a multi-conformer
+        // record and silently reclassify it as a single static structure.
+        const bool read = read_dispatched(ifs_, mol);
+        if (read) {
+            ++records_read_;
+            return oeio::read_ok();
         }
-        if (auto* q = dynamic_cast<OEChem::OEQMolBase*>(&mol)) {
-            return OEChem::OEReadMolecule(ifs_, *q);
-        }
-        return OEChem::OEReadMolecule(ifs_, mol);
+
+        // This is the distinction the boolean API cannot make: the stream is only at
+        // its end if oemolistream says so. Otherwise the record failed.
+        //
+        // IMPORTANT: Whether a malformed record surfaces as RecordError depends on the
+        // underlying reader's strictness. OEChem's SDF reader is very lenient — it
+        // returns true and creates a partial molecule even for invalid data (emitting
+        // only a stderr warning). Binary formats like OEB are stricter. This eof()
+        // check is correct for readers that DO fail; for lenient readers, RecordError
+        // is simply unreachable for most corruption.
+        if (ifs_.eof()) { return oeio::read_end(); }
+
+        std::string message = "record " + std::to_string(records_read_ + 1) + " of this " +
+                              std::string(OEChem::OEGetFormatString(ifs_.GetFormat())) +
+                              " stream could not be parsed";
+        return oeio::read_error(std::move(message), can_resynchronize());
     }
 
 private:
-    OEChem::oemolistream ifs_;
+    mutable OEChem::oemolistream ifs_;
+    std::size_t records_read_ = 0;
 };
 
 // ============================================================================
