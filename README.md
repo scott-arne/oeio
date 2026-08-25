@@ -44,7 +44,7 @@ Prerequisites:
 - OpenEye C++ SDK
 - CMake >= 3.16
 - SWIG >= 4.0
-- Python >= 3.10
+- Python >= 3.11
 
 Configure and build:
 
