@@ -27,11 +27,10 @@ target_link_libraries(oeio_tests
         GTest::gtest_main
 )
 
-# cmake-openeye gap workaround: tests use OEAddExplicitHydrogens (from OEQuacPac)
-# but the Find module doesn't expose OEQuacPac as a target. Link the dylib directly
-# when using shared libs.
-if(OPENEYE_USE_SHARED AND EXISTS "/Users/johnss51/Applications/micromamba/envs/main/lib/python3.13/site-packages/openeye/libs/python3-osx-universal-clang++/liboequacpac-2.3.0.0.dylib")
-    target_link_libraries(oeio_tests PRIVATE "/Users/johnss51/Applications/micromamba/envs/main/lib/python3.13/site-packages/openeye/libs/python3-osx-universal-clang++/liboequacpac-2.3.0.0.dylib")
+# OEAddExplicitHydrogens, which the tests call, lives in OEQuacpac. Link its
+# imported target explicitly rather than relying on a transitive dependency.
+if(TARGET OpenEye::OEQuacpac)
+    target_link_libraries(oeio_tests PRIVATE OpenEye::OEQuacpac)
 endif()
 
 target_compile_definitions(oeio_tests PRIVATE
