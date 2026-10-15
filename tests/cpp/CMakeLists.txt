@@ -27,8 +27,10 @@ target_link_libraries(oeio_tests
         GTest::gtest_main
 )
 
-# OEAddExplicitHydrogens, which the tests call, lives in OEQuacpac. Link its
-# imported target explicitly rather than relying on a transitive dependency.
+# OEQuacpac was linked here to work around an earlier shared-build link failure
+# (OEAddExplicitHydrogens itself is defined in OEChem). Link its imported
+# target, which carries its own dependencies, rather than a machine-specific
+# dylib path.
 if(TARGET OpenEye::OEQuacpac)
     target_link_libraries(oeio_tests PRIVATE OpenEye::OEQuacpac)
 endif()
