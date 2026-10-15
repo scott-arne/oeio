@@ -428,7 +428,8 @@ python scripts/build_python.py --openeye-root /path/to/openeye/sdk
 ```
 
 Options: `--clean`, `--upload`, `--test-upload`, `--verbose`. If `--openeye-root`
-is not provided, the script checks `OPENEYE_ROOT`, then `CMakePresets.json`.
+is not provided, the script checks `OPENEYE_ROOT`, then `CMakePresets.json` and
+`CMakeUserPresets.json`.
 
 ## CMake Options
 
