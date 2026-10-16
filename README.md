@@ -43,7 +43,12 @@ Prerequisites:
 
 - OpenEye C++ SDK
 - CMake >= 3.16
-- SWIG >= 4.0
+- SWIG >= 4.4.1. CI builds with SWIG 4.5.1 (`pip install swig==4.5.1`). SWIG
+  4.4.0, which Ubuntu 26.04 ships as `/usr/bin/swig`, generates stable-ABI
+  wrappers that do not compile against Python 3.13 or newer.
+- patchelf (Linux), so editable builds can add the OpenEye
+  library directories to the extension's RPATH; without it the
+  editable import fails with `cannot open shared object file`.
 - Python >= 3.11
 
 Configure and build:
@@ -51,6 +56,26 @@ Configure and build:
 ```bash
 cmake --preset debug
 cmake --build build-debug
+```
+
+The tracked presets carry no machine paths. Set `OPENEYE_ROOT` in the
+environment, or create a `CMakeUserPresets.json` (gitignored) that inherits a
+tracked preset:
+
+```json
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "local",
+            "inherits": "debug",
+            "cacheVariables": {
+                "OPENEYE_ROOT": "/path/to/openeye/toolkits",
+                "Python3_EXECUTABLE": "/path/to/python"
+            }
+        }
+    ]
+}
 ```
 
 Install the Python package for development:
@@ -428,7 +453,8 @@ python scripts/build_python.py --openeye-root /path/to/openeye/sdk
 ```
 
 Options: `--clean`, `--upload`, `--test-upload`, `--verbose`. If `--openeye-root`
-is not provided, the script checks `OPENEYE_ROOT`, then `CMakePresets.json`.
+is not provided, the script checks `OPENEYE_ROOT`, then `CMakePresets.json` and
+`CMakeUserPresets.json`.
 
 ## CMake Options
 
